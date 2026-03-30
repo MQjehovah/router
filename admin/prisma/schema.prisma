@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         Role      @default(USER)
+  balance      Decimal   @default(0) @db.Decimal(10, 4)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  apiKeys      ApiKey[]
+  bills        Bill[]
+  transactions Transaction[]
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+model Provider {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  type      ProviderType
+  baseUrl   String
+  apiKey    String
+  status    ProviderStatus @default(ACTIVE)
+  createdAt DateTime  @default(now())
+
+  usageRecords UsageRecord[]
+}
+
+enum ProviderType {
+  OPENAI
+  ANTHROPIC
+  GOOGLE
+  HUGGINGFACE
+}
+
+enum ProviderStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model ApiKey {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id])
+  keyHash     String    @unique
+  name        String
+  status      ApiKeyStatus @default(ACTIVE)
+  rateLimit   Int       @default(60)
+  dailyQuota  Int       @default(100000)
+  monthlyQuota Int      @default(3000000)
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  usageRecords UsageRecord[]
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
+model UsageRecord {
+  id            Int       @id @default(autoincrement())
+  apiKeyId      Int
+  apiKey        ApiKey    @relation(fields: [apiKeyId], references: [id])
+  providerId    Int
+  provider      Provider  @relation(fields: [providerId], references: [id])
+  model         String
+  tokensIn      Int       @default(0)
+  tokensOut     Int       @default(0)
+  cost          Decimal   @default(0) @db.Decimal(10, 6)
+  latencyMs     Int       @default(0)
+  createdAt     DateTime  @default(now())
+}
+
+model Bill {
+  id           Int       @id @default(autoincrement())
+  userId       Int
+  user         User      @relation(fields: [userId], references: [id])
+  periodStart  DateTime
+  periodEnd    DateTime
+  totalCost    Decimal   @db.Decimal(10, 4)
+  status       BillStatus @default(PENDING)
+  paidAt       DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+enum BillStatus {
+  PENDING
+  PAID
+  OVERDUE
+}
+
+model Transaction {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id])
+  type        TransactionType
+  amount      Decimal   @db.Decimal(10, 4)
+  balance     Decimal   @db.Decimal(10, 4)
+  description String?
+  createdAt   DateTime  @default(now())
+}
+
+enum TransactionType {
+  RECHARGE
+  CONSUMPTION
+  REFUND
+}
