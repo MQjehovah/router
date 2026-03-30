@@ -4,6 +4,14 @@ import jwt from '@fastify/jwt';
 import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
 
+import { authRoutes } from './routes/auth.js';
+import { userRoutes } from './routes/users.js';
+import { keyRoutes } from './routes/keys.js';
+import { internalRoutes } from './routes/internal.js';
+import { providerRoutes } from './routes/providers.js';
+import { usageRoutes } from './routes/usage.js';
+import { billingRoutes } from './routes/billing.js';
+
 dotenv.config();
 
 const fastify = Fastify({ logger: true });
@@ -19,6 +27,22 @@ await fastify.register(jwt, {
 });
 
 fastify.decorate('prisma', prisma);
+
+fastify.decorate('authenticate', async (req: any, reply: any) => {
+  try {
+    await req.jwtVerify();
+  } catch (err) {
+    reply.status(401).send({ error: 'Unauthorized' });
+  }
+});
+
+await fastify.register(authRoutes);
+await fastify.register(userRoutes);
+await fastify.register(keyRoutes);
+await fastify.register(internalRoutes);
+await fastify.register(providerRoutes);
+await fastify.register(usageRoutes);
+await fastify.register(billingRoutes);
 
 fastify.get('/health', async () => {
   try {
