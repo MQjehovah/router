@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: ai-gateway-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: ai-gateway-service
+    environment:
+      - PORT=3000
+      - ADMIN_API_URL=http://admin:3001
+      - INTERNAL_SECRET=${INTERNAL_SECRET}
+    ports:
+      - "3000:3000"
+    depends_on:
+      admin:
+        condition: service_healthy
+
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+    container_name: ai-gateway-admin
+    environment:
+      - PORT=3001
+      - DATABASE_URL=mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+      - JWT_SECRET=${JWT_SECRET}
+      - INTERNAL_SECRET=${INTERNAL_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+    ports:
+      - "3001:3001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: ai-gateway-web
+    environment:
+      - VITE_API_BASE_URL=http://localhost:3001
+    ports:
+      - "3002:80"
+    depends_on:
+      - admin
+
+volumes:
+  mysql_data:
