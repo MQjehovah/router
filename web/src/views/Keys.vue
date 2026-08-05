@@ -62,8 +62,16 @@
             <span class="date font-mono">{{ fmtDate(row.createdAt) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="170" align="right">
+        <el-table-column label="操作" width="215" align="right">
           <template #default="{ row }">
+            <el-tooltip content="统计数据">
+              <el-button
+                text
+                :icon="DataAnalysis"
+                class="row-btn"
+                @click="openStats(row)"
+              />
+            </el-tooltip>
             <el-tooltip content="重新生成">
               <el-button
                 text
@@ -146,6 +154,68 @@
       </template>
     </el-dialog>
 
+    <!-- stats -->
+    <el-dialog v-model="statsOpen" :title="statsTitle" width="620px" destroy-on-close>
+      <div v-loading="statsLoading">
+        <template v-if="statsData">
+          <div class="stats-groups">
+            <div v-for="g in ['total', 'today']" :key="g" class="stats-group">
+              <div class="stats-group-title">{{ g === 'total' ? '累计' : '今日' }}</div>
+              <div class="stats-grid">
+                <div class="stat-item">
+                  <span class="stat-label">请求数</span>
+                  <span class="stat-value font-mono">{{ (statsData[g].requests || 0).toLocaleString() }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">输入 Token</span>
+                  <span class="stat-value font-mono">{{ (statsData[g].tokensIn || 0).toLocaleString() }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">输出 Token</span>
+                  <span class="stat-value font-mono">{{ (statsData[g].tokensOut || 0).toLocaleString() }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">缓存 Token</span>
+                  <span class="stat-value font-mono">{{ (statsData[g].cachedTokens || 0).toLocaleString() }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">费用</span>
+                  <span class="stat-value cost font-mono">${{ Number(statsData[g].cost || 0).toFixed(4) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="stats-models">
+            <div class="stats-group-title">本月模型分布</div>
+            <el-table v-if="statsData.monthlyModels.length" :data="statsData.monthlyModels" size="small">
+              <el-table-column prop="model" label="模型" min-width="160">
+                <template #default="{ row }">
+                  <span class="model-tag">{{ row.model }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="输入" width="120" align="right" class-name="font-mono">
+                <template #default="{ row }">{{ (row.tokensIn || 0).toLocaleString() }}</template>
+              </el-table-column>
+              <el-table-column label="输出" width="120" align="right" class-name="font-mono">
+                <template #default="{ row }">{{ (row.tokensOut || 0).toLocaleString() }}</template>
+              </el-table-column>
+              <el-table-column label="缓存" width="120" align="right" class-name="font-mono">
+                <template #default="{ row }">{{ (row.cachedTokens || 0).toLocaleString() }}</template>
+              </el-table-column>
+              <el-table-column label="费用" width="120" align="right">
+                <template #default="{ row }"><span class="cost font-mono">${{ Number(row.cost || 0).toFixed(4) }}</span></template>
+              </el-table-column>
+            </el-table>
+            <div v-else class="stats-empty">本月暂无使用记录</div>
+          </div>
+        </template>
+      </div>
+      <template #footer>
+        <el-button @click="statsOpen = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
     <!-- one-time reveal -->
     <el-dialog v-model="revealOpen" :title="revealTitle" width="460px">
       <p class="reveal-tip">此密钥仅显示一次，请立即复制保存。关闭后无法再次查看。</p>
@@ -163,7 +233,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
-import { Plus, Search, Refresh, Edit, Delete, CopyDocument, RefreshRight } from '@element-plus/icons-vue';
+import { Plus, Search, Refresh, Edit, Delete, CopyDocument, RefreshRight, DataAnalysis } from '@element-plus/icons-vue';
 import api from '../api';
 
 const keys = ref<any[]>([]);
@@ -179,6 +249,11 @@ const editOpen = ref(false);
 const revealOpen = ref(false);
 const revealTitle = ref('API Key 创建成功');
 const revealedKey = ref('');
+
+const statsOpen = ref(false);
+const statsLoading = ref(false);
+const statsTitle = ref('');
+const statsData = ref<any>(null);
 
 const createRef = ref<FormInstance>();
 const form = ref({ name: '', dailyQuota: 100000, monthlyQuota: 3000000, rateLimit: 60, modelIds: [] as number[] });
@@ -290,6 +365,22 @@ const handleDelete = async (row: any) => {
   }
 };
 
+const openStats = async (row: any) => {
+  statsTitle.value = `统计数据 — ${row.name || row.keyHash}`;
+  statsData.value = null;
+  statsOpen.value = true;
+  statsLoading.value = true;
+  try {
+    const { data } = await api.get(`/api/keys/${row.id}/stats`);
+    statsData.value = data;
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '加载统计失败');
+    statsOpen.value = false;
+  } finally {
+    statsLoading.value = false;
+  }
+};
+
 const copyKey = async () => {
   try {
     await navigator.clipboard.writeText(revealedKey.value);
@@ -393,5 +484,65 @@ onMounted(loadKeys);
   font-size: 13px;
   color: #a5f3fc;
   word-break: break-all;
+}
+
+.stats-groups {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.stats-group {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--bg-surface);
+}
+.stats-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+}
+.stats-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stat-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.stat-label {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.stat-value {
+  font-size: 13px;
+  color: var(--text-1);
+}
+.stat-value.cost {
+  color: #6ee7b7;
+  font-weight: 600;
+}
+.stats-models {
+  margin-top: 16px;
+}
+.model-tag {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a5f3fc;
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+}
+.cost { color: #6ee7b7; font-weight: 600; }
+.stats-empty {
+  font-size: 12px;
+  color: var(--text-3);
+  padding: 8px 2px;
 }
 </style>

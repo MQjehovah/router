@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import type { RouteRecordRaw } from 'vue-router';
+import { useAuthStore } from '../stores/auth';
 
 const routes: RouteRecordRaw[] = [
   {
@@ -23,7 +24,8 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'users',
         name: 'Users',
-        component: () => import('../views/Users.vue')
+        component: () => import('../views/Users.vue'),
+        meta: { admin: true }
       },
       {
         path: 'keys',
@@ -33,7 +35,8 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'providers',
         name: 'Providers',
-        component: () => import('../views/Providers.vue')
+        component: () => import('../views/Providers.vue'),
+        meta: { admin: true }
       },
       {
         path: 'usage',
@@ -54,12 +57,25 @@ const router = createRouter({
   routes
 });
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const token = localStorage.getItem('token');
   if (to.path !== '/login' && !token) {
     next('/login');
   } else if (to.path === '/login' && token) {
     next('/');
+  } else if (to.meta.admin && token) {
+    const auth = useAuthStore();
+    if (!auth.user) {
+      try {
+        await auth.fetchUser();
+      } catch {
+        auth.logout();
+        next('/login');
+        return;
+      }
+    }
+    if (auth.user?.role === 'ADMIN') next();
+    else next('/dashboard');
   } else {
     next();
   }

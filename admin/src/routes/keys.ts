@@ -175,4 +175,65 @@ export async function keyRoutes(fastify: FastifyInstance) {
     await prisma.apiKey.delete({ where: { id: keyId } });
     return { success: true };
   });
+
+  fastify.get<{ Params: { id: string } }>('/api/keys/:id/stats', {
+    preHandler: [fastify.authenticate]
+  }, async (req, reply) => {
+    const keyId = parseInt(req.params.id);
+    const key = await prisma.apiKey.findUnique({ where: { id: keyId } });
+
+    if (!key) {
+      return reply.status(404).send({ error: 'Key not found' });
+    }
+
+    if (req.user.role !== 'ADMIN' && key.userId !== req.user.id) {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    const [total, todayUsage, monthlyModels] = await Promise.all([
+      prisma.usageRecord.aggregate({
+        where: { apiKeyId: keyId },
+        _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
+        _count: true
+      }),
+      prisma.usageRecord.aggregate({
+        where: { apiKeyId: keyId, createdAt: { gte: today } },
+        _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
+        _count: true
+      }),
+      prisma.usageRecord.groupBy({
+        by: ['model'],
+        where: { apiKeyId: keyId, createdAt: { gte: monthStart } },
+        _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
+        orderBy: { _sum: { cost: 'desc' } },
+        take: 10
+      })
+    ]);
+
+    const shape = (u: { _count: number; _sum: { tokensIn: number | null; tokensOut: number | null; cachedTokens: number | null; cost: unknown } }) => ({
+      requests: u._count,
+      tokensIn: u._sum.tokensIn || 0,
+      tokensOut: u._sum.tokensOut || 0,
+      cachedTokens: u._sum.cachedTokens || 0,
+      cost: Number(u._sum.cost || 0)
+    });
+
+    return {
+      keyId,
+      name: key.name,
+      total: shape(total),
+      today: shape(todayUsage),
+      monthlyModels: monthlyModels.map(m => ({
+        model: m.model,
+        tokensIn: m._sum.tokensIn || 0,
+        tokensOut: m._sum.tokensOut || 0,
+        cachedTokens: m._sum.cachedTokens || 0,
+        cost: Number(m._sum.cost || 0)
+      }))
+    };
+  });
 }

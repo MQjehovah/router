@@ -28,11 +28,11 @@
           <el-icon><Wallet /></el-icon>
           <span>账单充值</span>
         </el-menu-item>
-        <el-menu-item index="/users">
+        <el-menu-item v-if="authStore.isAdmin" index="/users">
           <el-icon><User /></el-icon>
           <span>用户管理</span>
         </el-menu-item>
-        <el-menu-item index="/providers">
+        <el-menu-item v-if="authStore.isAdmin" index="/providers">
           <el-icon><Connection /></el-icon>
           <span>提供商</span>
         </el-menu-item>
