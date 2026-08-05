@@ -251,6 +251,7 @@ const saveProtocolPath = async (row: any, p: any, path: string) => {
   try {
     await api.put(`/api/providers/${row.id}/protocols/${p.id}`, { path });
     ElMessage.success('路径已保存');
+    await loadProviders();
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '保存失败');
     await loadProviders();
