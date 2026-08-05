@@ -6,12 +6,18 @@ const prisma = new PrismaClient();
 interface CreateModelBody {
   name: string;
   providerId: number;
+  inputPrice?: number;
+  outputPrice?: number;
+  cachePrice?: number;
 }
 
 interface UpdateModelBody {
   name?: string;
   providerId?: number;
   status?: 'ACTIVE' | 'INACTIVE';
+  inputPrice?: number;
+  outputPrice?: number;
+  cachePrice?: number;
 }
 
 export async function modelRoutes(fastify: FastifyInstance) {
@@ -27,6 +33,9 @@ export async function modelRoutes(fastify: FastifyInstance) {
       name: m.name,
       status: m.status,
       providerId: m.providerId,
+      inputPrice: m.inputPrice.toNumber(),
+      outputPrice: m.outputPrice.toNumber(),
+      cachePrice: m.cachePrice.toNumber(),
       provider: m.provider,
       createdAt: m.createdAt.toISOString()
     }));
@@ -50,7 +59,13 @@ export async function modelRoutes(fastify: FastifyInstance) {
     }
 
     const model = await prisma.model.create({
-      data: { name: req.body.name, providerId: req.body.providerId }
+      data: {
+        name: req.body.name,
+        providerId: req.body.providerId,
+        inputPrice: req.body.inputPrice ?? 0,
+        outputPrice: req.body.outputPrice ?? 0,
+        cachePrice: req.body.cachePrice ?? 0
+      }
     });
     return model;
   });
@@ -71,6 +86,9 @@ export async function modelRoutes(fastify: FastifyInstance) {
       data.providerId = req.body.providerId;
     }
     if (req.body.status) data.status = req.body.status;
+    if (typeof req.body.inputPrice === 'number') data.inputPrice = req.body.inputPrice;
+    if (typeof req.body.outputPrice === 'number') data.outputPrice = req.body.outputPrice;
+    if (typeof req.body.cachePrice === 'number') data.cachePrice = req.body.cachePrice;
 
     const model = await prisma.model.update({ where: { id: modelId }, data });
     return model;
