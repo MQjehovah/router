@@ -148,16 +148,18 @@ export async function internalRoutes(fastify: FastifyInstance) {
     }
 
     const protoRows = await prisma.providerProtocol.findMany({
-      where: { providerId: model.providerId, status: 'ACTIVE' },
+      where: { providerId: model.providerId },
       orderBy: { id: 'asc' }
     });
 
-    let protocols = protoRows.map(r => ({
+    const activeRows = protoRows.filter(r => r.status === 'ACTIVE');
+
+    let protocols = activeRows.map(r => ({
       protocol: r.protocol,
       path: effectiveProtocolPath(r.protocol, r.path)
     }));
 
-    if (!protocols.length) {
+    if (protoRows.length === 0) {
       protocols = [{
         protocol: 'OPENAI_CHAT',
         path: effectiveProtocolPath('OPENAI_CHAT', model.provider.path)

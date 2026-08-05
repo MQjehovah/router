@@ -256,6 +256,12 @@ export async function providerRoutes(fastify: FastifyInstance) {
     });
     if (result.count === 0) return reply.status(404).send({ error: 'Protocol not found' });
     const row = await prisma.providerProtocol.findUnique({ where: { id: protocolId } });
+    if (row?.protocol === 'OPENAI_CHAT' && req.body.path !== undefined) {
+      await prisma.provider.update({
+        where: { id: providerId },
+        data: { path: req.body.path || '/chat/completions' }
+      });
+    }
     return row;
   });
 
