@@ -36,6 +36,10 @@
           <el-icon><Connection /></el-icon>
           <span>提供商</span>
         </el-menu-item>
+        <el-menu-item index="/models">
+          <el-icon><Cpu /></el-icon>
+          <span>模型</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 
@@ -89,7 +93,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
-  Odometer, Key, TrendCharts, Wallet, User, Connection,
+  Odometer, Key, TrendCharts, Wallet, User, Connection, Cpu,
   Expand, Fold, ArrowDown, SwitchButton
 } from '@element-plus/icons-vue';
 import { useAuthStore } from '../stores/auth';
@@ -108,7 +112,8 @@ const TITLES: Record<string, string> = {
   usage: '使用统计',
   billing: '账单充值',
   users: '用户管理',
-  providers: '提供商'
+  providers: '提供商',
+  models: '模型'
 };
 
 const breadcrumbs = computed(() => {

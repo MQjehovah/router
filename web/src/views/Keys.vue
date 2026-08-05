@@ -91,6 +91,12 @@
           <el-input-number v-model="form.rateLimit" :min="1" :max="10000" controls-position="right" style="width: 100%" />
           <div class="field-hint">每分钟最多请求次数</div>
         </el-form-item>
+        <el-form-item label="可用模型">
+          <el-select v-model="form.modelIds" multiple collapse-tags collapse-tags-tooltip placeholder="不选则默认全部启用模型" style="width: 100%">
+            <el-option v-for="m in models" :key="m.id" :label="m.name" :value="m.id" />
+          </el-select>
+          <div class="field-hint">留空 = 允许该 Key 使用所有启用中的模型</div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="createOpen = false">取消</el-button>
@@ -118,6 +124,11 @@
         </el-form-item>
         <el-form-item label="速率限制">
           <el-input-number v-model="editForm.rateLimit" :min="1" controls-position="right" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="可用模型">
+          <el-select v-model="editForm.modelIds" multiple collapse-tags collapse-tags-tooltip placeholder="不选则默认全部启用模型" style="width: 100%">
+            <el-option v-for="m in models" :key="m.id" :label="m.name" :value="m.id" />
+          </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -147,6 +158,7 @@ import { Plus, Search, Refresh, Edit, Delete, CopyDocument } from '@element-plus
 import api from '../api';
 
 const keys = ref<any[]>([]);
+const models = ref<any[]>([]);
 const loading = ref(false);
 const submitting = ref(false);
 const keyword = ref('');
@@ -158,7 +170,7 @@ const revealOpen = ref(false);
 const revealedKey = ref('');
 
 const createRef = ref<FormInstance>();
-const form = ref({ name: '', dailyQuota: 100000, monthlyQuota: 3000000, rateLimit: 60 });
+const form = ref({ name: '', dailyQuota: 100000, monthlyQuota: 3000000, rateLimit: 60, modelIds: [] as number[] });
 const editForm = ref<any>({});
 
 const rules: FormRules = {
@@ -178,8 +190,9 @@ const statusTag = (s: string) => ({ ACTIVE: 'success', INACTIVE: 'info', EXPIRED
 const loadKeys = async () => {
   loading.value = true;
   try {
-    const { data } = await api.get('/api/keys');
-    keys.value = data;
+    const [keysRes, modelsRes] = await Promise.all([api.get('/api/keys'), api.get('/api/models')]);
+    keys.value = keysRes.data;
+    models.value = modelsRes.data;
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '加载失败');
   } finally {
@@ -188,7 +201,7 @@ const loadKeys = async () => {
 };
 
 const openCreate = () => {
-  form.value = { name: '', dailyQuota: 100000, monthlyQuota: 3000000, rateLimit: 60 };
+  form.value = { name: '', dailyQuota: 100000, monthlyQuota: 3000000, rateLimit: 60, modelIds: [] };
   createOpen.value = true;
 };
 
@@ -211,7 +224,10 @@ const handleCreate = async () => {
 };
 
 const openEdit = (row: any) => {
-  editForm.value = { ...row };
+  editForm.value = {
+    ...row,
+    modelIds: (row.allowedModels || []).map((m: any) => m.id)
+  };
   editOpen.value = true;
 };
 

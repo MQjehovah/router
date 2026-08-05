@@ -1,8 +1,26 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
+
+function decrypt(text: string, key: string): string {
+  const [ivHex, encrypted] = text.split(':');
+  const iv = Buffer.from(ivHex, 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(key.slice(0, 32)), iv);
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+function authTypeFor(type: string): string {
+  switch (type) {
+    case 'ANTHROPIC': return 'anthropic';
+    case 'GOOGLE': return 'google';
+    default: return 'bearer';
+  }
+}
 
 interface VerifyBody {
   apiKey: string;
@@ -55,6 +73,85 @@ export async function internalRoutes(fastify: FastifyInstance) {
       return reply.status(401).send({ error: result.reason });
     }
     return result;
+  });
+
+  fastify.post<{ Body: { apiKey: string } }>('/internal/keys/models', async (req, reply) => {
+    const secret = req.headers['x-internal-secret'];
+    if (secret !== process.env.INTERNAL_SECRET) {
+      return reply.status(403).send({ error: 'Invalid internal secret' });
+    }
+
+    const result = await verifyKey(req.body.apiKey);
+    if (!result.valid) {
+      return reply.status(401).send({ error: result.reason });
+    }
+
+    const keyId = result.keyId;
+    const grants = await prisma.apiKeyAllowedModel.findMany({
+      where: { apiKeyId: keyId },
+      include: { model: { include: { provider: true } } }
+    });
+
+    let models;
+    if (grants.length > 0) {
+      models = grants
+        .filter(g => g.model.status === 'ACTIVE' && g.model.provider.status === 'ACTIVE')
+        .map(g => g.model.name);
+    } else {
+      models = (await prisma.model.findMany({
+        where: { status: 'ACTIVE' },
+        include: { provider: true }
+      }))
+        .filter(m => m.provider.status === 'ACTIVE')
+        .map(m => m.name);
+    }
+
+    return { models };
+  });
+
+  fastify.post<{ Body: { apiKey: string; model: string } }>('/internal/models/resolve', async (req, reply) => {
+    const secret = req.headers['x-internal-secret'];
+    if (secret !== process.env.INTERNAL_SECRET) {
+      return reply.status(403).send({ error: 'Invalid internal secret' });
+    }
+
+    const result = await verifyKey(req.body.apiKey);
+    if (!result.valid) {
+      return reply.status(401).send({ error: result.reason });
+    }
+
+    const model = await prisma.model.findUnique({
+      where: { name: req.body.model },
+      include: { provider: true }
+    });
+
+    if (!model || model.status !== 'ACTIVE') {
+      return reply.status(404).send({ error: `Model not found: ${req.body.model}` });
+    }
+    if (model.provider.status !== 'ACTIVE') {
+      return reply.status(400).send({ error: 'Provider inactive' });
+    }
+
+    const keyId = result.keyId;
+    const grant = await prisma.apiKeyAllowedModel.findUnique({
+      where: { apiKeyId_modelId: { apiKeyId: keyId, modelId: model.id } }
+    });
+    const hasGrant = !!grant;
+    const hasAnyGrant = (await prisma.apiKeyAllowedModel.count({ where: { apiKeyId: keyId } })) > 0;
+    if (hasAnyGrant && !hasGrant) {
+      return reply.status(403).send({ error: `Key not allowed to use model: ${req.body.model}` });
+    }
+
+    const providerKey = decrypt(model.provider.apiKey, process.env.ENCRYPTION_KEY || 'default-key');
+
+    return {
+      model: model.name,
+      providerId: model.providerId,
+      baseUrl: model.provider.baseUrl,
+      path: model.provider.path || '/chat/completions',
+      authType: authTypeFor(model.provider.type),
+      apiKey: providerKey
+    };
   });
 
   fastify.post<{ Body: ReportBody }>('/internal/usage/report', async (req, reply) => {

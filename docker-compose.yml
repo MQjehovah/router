@@ -27,6 +27,11 @@ services:
       - PORT=3000
       - ADMIN_API_URL=http://admin:3001
       - INTERNAL_SECRET=${INTERNAL_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
     ports:
       - "3100:3000"
     depends_on:

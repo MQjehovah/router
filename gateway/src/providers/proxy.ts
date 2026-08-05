@@ -5,16 +5,35 @@ setGlobalDispatcher(new Agent({ connect: { timeout: 120000 } }));
 export async function proxyRequest(
   baseUrl: string,
   path: string,
+  authType: string,
   apiKey: string,
   body: any,
+  model: string,
   isStream: boolean = false
 ): Promise<Response> {
-  const response = await fetch(`${baseUrl}${path}`, {
+  let url = `${baseUrl.replace(/\/+$/, '')}${path}`;
+  if (url.includes('{model}')) {
+    url = url.replace('{model}', encodeURIComponent(model));
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+  switch (authType) {
+    case 'anthropic':
+      headers['x-api-key'] = apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+      break;
+    case 'google':
+      url += url.includes('?') ? '&' : '?';
+      url += `key=${encodeURIComponent(apiKey)}`;
+      break;
+    default:
+      headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
+    headers,
     body: JSON.stringify(body),
     dispatcher: new Agent({
       connect: { timeout: 120000 }

@@ -12,6 +12,7 @@ interface CreateKeyBody {
   dailyQuota?: number;
   monthlyQuota?: number;
   expiresAt?: string;
+  modelIds?: number[];
 }
 
 interface UpdateKeyBody {
@@ -21,6 +22,7 @@ interface UpdateKeyBody {
   dailyQuota?: number;
   monthlyQuota?: number;
   expiresAt?: string;
+  modelIds?: number[];
 }
 
 function generateApiKey(): string {
@@ -39,13 +41,17 @@ export async function keyRoutes(fastify: FastifyInstance) {
     
     const keys = await prisma.apiKey.findMany({
       where,
-      include: { user: { select: { name: true, email: true } } },
+      include: {
+        user: { select: { name: true, email: true } },
+        allowedModels: { include: { model: true } }
+      },
       orderBy: { createdAt: 'desc' }
     });
     
     return keys.map(k => ({
       ...k,
       keyHash: k.keyHash.substring(0, 8) + '****',
+      allowedModels: k.allowedModels.map(a => a.model),
       createdAt: k.createdAt.toISOString(),
       expiresAt: k.expiresAt?.toISOString()
     }));
@@ -67,7 +73,10 @@ export async function keyRoutes(fastify: FastifyInstance) {
         rateLimit: req.body.rateLimit || 60,
         dailyQuota: req.body.dailyQuota || 100000,
         monthlyQuota: req.body.monthlyQuota || 3000000,
-        expiresAt: req.body.expiresAt ? new Date(req.body.expiresAt) : null
+        expiresAt: req.body.expiresAt ? new Date(req.body.expiresAt) : null,
+        allowedModels: req.body.modelIds?.length
+          ? { create: req.body.modelIds.map(modelId => ({ modelId })) }
+          : undefined
       }
     });
 
@@ -105,9 +114,16 @@ export async function keyRoutes(fastify: FastifyInstance) {
     if (req.body.monthlyQuota) data.monthlyQuota = req.body.monthlyQuota;
     if (req.body.expiresAt) data.expiresAt = new Date(req.body.expiresAt);
 
-    const updated = await prisma.apiKey.update({
-      where: { id: keyId },
-      data
+    const updated = await prisma.$transaction(async (tx) => {
+      if (req.body.modelIds) {
+        await tx.apiKeyAllowedModel.deleteMany({ where: { apiKeyId: keyId } });
+        if (req.body.modelIds.length) {
+          await tx.apiKeyAllowedModel.createMany({
+            data: req.body.modelIds.map(modelId => ({ apiKeyId: keyId, modelId }))
+          });
+        }
+      }
+      return tx.apiKey.update({ where: { id: keyId }, data });
     });
     
     return updated;

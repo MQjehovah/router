@@ -32,10 +32,12 @@ model Provider {
   name      String         @unique
   type      ProviderType
   baseUrl   String
+  path      String         @default("/chat/completions")
   apiKey    String
   status    ProviderStatus @default(ACTIVE)
   createdAt DateTime       @default(now())
 
+  models       Model[]
   usageRecords UsageRecord[]
 }
 
@@ -44,11 +46,23 @@ enum ProviderType {
   ANTHROPIC
   GOOGLE
   HUGGINGFACE
+  DEEPSEEK
 }
 
 enum ProviderStatus {
   ACTIVE
   INACTIVE
+}
+
+model Model {
+  id         Int       @id @default(autoincrement())
+  name       String    @unique
+  providerId Int
+  provider   Provider  @relation(fields: [providerId], references: [id])
+  status     String    @default("ACTIVE")
+  createdAt  DateTime  @default(now())
+
+  allowedKeys ApiKeyAllowedModel[]
 }
 
 model ApiKey {
@@ -65,12 +79,22 @@ model ApiKey {
   createdAt    DateTime     @default(now())
 
   usageRecords UsageRecord[]
+  allowedModels ApiKeyAllowedModel[]
 }
 
 enum ApiKeyStatus {
   ACTIVE
   INACTIVE
   EXPIRED
+}
+
+model ApiKeyAllowedModel {
+  apiKeyId Int
+  apiKey   ApiKey @relation(fields: [apiKeyId], references: [id])
+  modelId  Int
+  model    Model  @relation(fields: [modelId], references: [id])
+
+  @@id([apiKeyId, modelId])
 }
 
 model UsageRecord {

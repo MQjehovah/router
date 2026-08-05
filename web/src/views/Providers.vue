@@ -93,10 +93,15 @@
             <el-option label="Anthropic" value="ANTHROPIC" />
             <el-option label="Google" value="GOOGLE" />
             <el-option label="Hugging Face" value="HUGGINGFACE" />
+            <el-option label="DeepSeek" value="DEEPSEEK" />
           </el-select>
         </el-form-item>
         <el-form-item label="Base URL" prop="baseUrl">
-          <el-input v-model="form.baseUrl" placeholder="https://api.openai.com/v1" />
+          <el-input v-model="form.baseUrl" placeholder="https://api.deepseek.com" />
+        </el-form-item>
+        <el-form-item label="路径" prop="path">
+          <el-input v-model="form.path" placeholder="/chat/completions" />
+          <div class="field-hint">转发路径，支持 {model} 占位（Google 用 /models/{model}:generateContent）</div>
         </el-form-item>
         <el-form-item label="API Key" prop="apiKey">
           <el-input v-model="form.apiKey" type="password" show-password :placeholder="editingId ? '留空表示不修改' : 'sk-…'" />
@@ -132,7 +137,7 @@ const typeFilter = ref('');
 const createOpen = ref(false);
 const editingId = ref<number | null>(null);
 const createRef = ref<FormInstance>();
-const form = ref({ name: '', type: 'OPENAI', baseUrl: '', apiKey: '', status: 'ACTIVE' });
+const form = ref({ name: '', type: 'OPENAI', baseUrl: '', path: '/chat/completions', apiKey: '', status: 'ACTIVE' });
 
 const rules: FormRules = {
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
@@ -145,8 +150,8 @@ const filtered = computed(() => providers.value.filter(p =>
   (!keyword.value || p.name?.includes(keyword.value) || p.type?.includes(keyword.value))
 ));
 
-const typeLabel = (t: string) => ({ OPENAI: 'OpenAI', ANTHROPIC: 'Anthropic', GOOGLE: 'Google', HUGGINGFACE: 'Hugging Face' })[t] || t;
-const pAbbr = (t: string) => ({ OPENAI: 'OA', ANTHROPIC: 'AN', GOOGLE: 'GO', HUGGINGFACE: 'HF' })[t] || '?';
+const typeLabel = (t: string) => ({ OPENAI: 'OpenAI', ANTHROPIC: 'Anthropic', GOOGLE: 'Google', HUGGINGFACE: 'Hugging Face', DEEPSEEK: 'DeepSeek' })[t] || t;
+const pAbbr = (t: string) => ({ OPENAI: 'OA', ANTHROPIC: 'AN', GOOGLE: 'GO', HUGGINGFACE: 'HF', DEEPSEEK: 'DS' })[t] || '?';
 
 const loadProviders = async () => {
   loading.value = true;
@@ -162,13 +167,13 @@ const loadProviders = async () => {
 
 const openCreate = () => {
   editingId.value = null;
-  form.value = { name: '', type: 'OPENAI', baseUrl: '', apiKey: '', status: 'ACTIVE' };
+  form.value = { name: '', type: 'OPENAI', baseUrl: '', path: '/chat/completions', apiKey: '', status: 'ACTIVE' };
   createOpen.value = true;
 };
 
 const openEdit = (row: any) => {
   editingId.value = row.id;
-  form.value = { name: row.name, type: row.type, baseUrl: row.baseUrl, apiKey: '', status: row.status };
+  form.value = { name: row.name, type: row.type, baseUrl: row.baseUrl, path: row.path || '/chat/completions', apiKey: '', status: row.status };
   createOpen.value = true;
 };
 
@@ -268,4 +273,5 @@ onMounted(loadProviders);
 
 .url, .key { font-size: 12px; color: var(--text-2); background: var(--bg-deep); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); }
 .row-btn { padding: 6px; }
+.field-hint { font-size: 12px; color: var(--text-3); margin-top: 4px; line-height: 1.4; }
 </style>

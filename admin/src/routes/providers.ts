@@ -53,6 +53,11 @@ async function testProviderConnection(type: string, baseUrl: string, apiKey: str
           headers: { Authorization: `Bearer ${apiKey}` }, signal
         });
         break;
+      case 'DEEPSEEK':
+        res = await fetch(`${base}/models`, {
+          headers: { Authorization: `Bearer ${apiKey}` }, signal
+        });
+        break;
       default:
         return { ok: false, status: 0, detail: `不支持的类型: ${type}` };
     }
@@ -70,14 +75,16 @@ async function testProviderConnection(type: string, baseUrl: string, apiKey: str
 
 interface CreateProviderBody {
   name: string;
-  type: 'OPENAI' | 'ANTHROPIC' | 'GOOGLE' | 'HUGGINGFACE';
+  type: 'OPENAI' | 'ANTHROPIC' | 'GOOGLE' | 'HUGGINGFACE' | 'DEEPSEEK';
   baseUrl: string;
+  path?: string;
   apiKey: string;
 }
 
 interface UpdateProviderBody {
   name?: string;
   baseUrl?: string;
+  path?: string;
   apiKey?: string;
   status?: 'ACTIVE' | 'INACTIVE';
 }
@@ -115,6 +122,7 @@ export async function providerRoutes(fastify: FastifyInstance) {
         name: req.body.name,
         type: req.body.type,
         baseUrl: req.body.baseUrl,
+        path: req.body.path || '/chat/completions',
         apiKey: encryptedKey
       }
     });
@@ -134,6 +142,7 @@ export async function providerRoutes(fastify: FastifyInstance) {
 
     if (req.body.name) data.name = req.body.name;
     if (req.body.baseUrl) data.baseUrl = req.body.baseUrl;
+    if (req.body.path) data.path = req.body.path;
     if (req.body.status) data.status = req.body.status;
     if (req.body.apiKey) {
       data.apiKey = encrypt(req.body.apiKey, process.env.ENCRYPTION_KEY || 'default-key');

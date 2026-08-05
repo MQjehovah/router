@@ -9,6 +9,7 @@ import { userRoutes } from './routes/users.js';
 import { keyRoutes } from './routes/keys.js';
 import { internalRoutes } from './routes/internal.js';
 import { providerRoutes } from './routes/providers.js';
+import { modelRoutes } from './routes/models.js';
 import { usageRoutes } from './routes/usage.js';
 import { billingRoutes } from './routes/billing.js';
 
@@ -41,6 +42,7 @@ await fastify.register(userRoutes);
 await fastify.register(keyRoutes);
 await fastify.register(internalRoutes);
 await fastify.register(providerRoutes);
+await fastify.register(modelRoutes);
 await fastify.register(usageRoutes);
 await fastify.register(billingRoutes);
 
