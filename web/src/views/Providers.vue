@@ -293,10 +293,8 @@ const typeFilter = ref('');
 
 const expandedIds = ref<number[]>([]);
 const rowKey = (row: any) => row.id;
-const onExpandChange = (row: any, expanded: boolean) => {
-  expandedIds.value = expanded
-    ? [...expandedIds.value, row.id]
-    : expandedIds.value.filter(id => id !== row.id);
+const onExpandChange = (_row: any, expandedRows: any[]) => {
+  expandedIds.value = expandedRows.map(r => r.id);
 };
 
 const createOpen = ref(false);
