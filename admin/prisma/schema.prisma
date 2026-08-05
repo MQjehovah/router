@@ -60,6 +60,9 @@ model Model {
   providerId Int
   provider   Provider  @relation(fields: [providerId], references: [id])
   status     String    @default("ACTIVE")
+  inputPrice  Decimal @default(0)
+  outputPrice Decimal @default(0)
+  cachePrice  Decimal @default(0)
   createdAt  DateTime  @default(now())
 
   allowedKeys ApiKeyAllowedModel[]
@@ -106,6 +109,7 @@ model UsageRecord {
   model     String
   tokensIn  Int       @default(0)
   tokensOut Int       @default(0)
+  cachedTokens Int     @default(0)
   cost      Decimal   @default(0)
   latencyMs Int       @default(0)
   createdAt DateTime  @default(now())
