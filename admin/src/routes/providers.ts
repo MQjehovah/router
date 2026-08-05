@@ -12,6 +12,62 @@ function encrypt(text: string, key: string): string {
   return iv.toString('hex') + ':' + encrypted;
 }
 
+function decrypt(text: string, key: string): string {
+  const [ivHex, encrypted] = text.split(':');
+  const iv = Buffer.from(ivHex, 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(key.slice(0, 32)), iv);
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+async function testProviderConnection(type: string, baseUrl: string, apiKey: string) {
+  const base = baseUrl.replace(/\/+$/, '');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  const signal = controller.signal;
+
+  const safeText = async (res: Response) => {
+    const body = await res.text();
+    return body.slice(0, 300);
+  };
+
+  try {
+    let res: Response;
+    switch (type) {
+      case 'OPENAI':
+        res = await fetch(`${base}/models`, {
+          headers: { Authorization: `Bearer ${apiKey}` }, signal
+        });
+        break;
+      case 'ANTHROPIC':
+        res = await fetch(`${base}/models`, {
+          headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, signal
+        });
+        break;
+      case 'GOOGLE':
+        res = await fetch(`${base}/models?key=${encodeURIComponent(apiKey)}`, { signal });
+        break;
+      case 'HUGGINGFACE':
+        res = await fetch(`${base}/api/models`, {
+          headers: { Authorization: `Bearer ${apiKey}` }, signal
+        });
+        break;
+      default:
+        return { ok: false, status: 0, detail: `不支持的类型: ${type}` };
+    }
+    return { ok: res.ok, status: res.status, detail: res.ok ? '连接正常' : await safeText(res) };
+  } catch (err: any) {
+    return {
+      ok: false,
+      status: 0,
+      detail: err.name === 'AbortError' ? '连接超时（10s）' : `请求失败: ${err.message || err}`
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 interface CreateProviderBody {
   name: string;
   type: 'OPENAI' | 'ANTHROPIC' | 'GOOGLE' | 'HUGGINGFACE';
@@ -89,6 +145,25 @@ export async function providerRoutes(fastify: FastifyInstance) {
     });
 
     return { ...provider, apiKey: '****' };
+  });
+
+  fastify.post<{ Params: { id: string } }>('/api/providers/:id/test', {
+    preHandler: [fastify.authenticate]
+  }, async (req, reply) => {
+    if (req.user.role !== 'ADMIN') {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+
+    const providerId = parseInt(req.params.id);
+    const provider = await prisma.provider.findUnique({ where: { id: providerId } });
+    if (!provider) {
+      return reply.status(404).send({ error: 'Provider not found' });
+    }
+
+    const apiKey = decrypt(provider.apiKey, process.env.ENCRYPTION_KEY || 'default-key');
+    const result = await testProviderConnection(provider.type, provider.baseUrl, apiKey);
+    reply.code(result.ok ? 200 : 400);
+    return result;
   });
 
   fastify.delete('/api/providers/:id', {

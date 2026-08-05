@@ -60,8 +60,17 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" align="right">
+        <el-table-column label="操作" width="160" align="right">
           <template #default="{ row }">
+            <el-tooltip content="测试连接">
+              <el-button
+                text
+                :loading="testingId === row.id"
+                :icon="Aim"
+                class="row-btn"
+                @click="handleTest(row)"
+              />
+            </el-tooltip>
             <el-tooltip content="编辑">
               <el-button text :icon="Edit" class="row-btn" @click="openEdit(row)" />
             </el-tooltip>
@@ -110,12 +119,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
-import { Plus, Search, Refresh, Edit, Delete } from '@element-plus/icons-vue';
+import { Plus, Search, Refresh, Edit, Delete, Aim } from '@element-plus/icons-vue';
 import api from '../api';
 
 const providers = ref<any[]>([]);
 const loading = ref(false);
 const submitting = ref(false);
+const testingId = ref<number | null>(null);
 const keyword = ref('');
 const typeFilter = ref('');
 
@@ -181,6 +191,27 @@ const handleSave = async () => {
     ElMessage.error(e.response?.data?.error || '保存失败');
   } finally {
     submitting.value = false;
+  }
+};
+
+const handleTest = async (row: any) => {
+  testingId.value = row.id;
+  try {
+    const { data } = await api.post(`/api/providers/${row.id}/test`, {});
+    ElMessageBox.alert(
+      `上游返回 ${data.status}：${data.detail}`,
+      '连接测试成功',
+      { type: 'success', confirmButtonText: '知道了' }
+    );
+  } catch (e: any) {
+    const detail = e.response?.data?.detail || e.response?.data?.error || '测试失败';
+    ElMessageBox.alert(
+      detail,
+      '连接测试失败',
+      { type: 'error', confirmButtonText: '知道了' }
+    );
+  } finally {
+    testingId.value = null;
   }
 };
 
