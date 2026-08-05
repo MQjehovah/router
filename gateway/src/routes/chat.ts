@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { proxyRequest } from '../providers/proxy.js';
-import { extractUsage, calculateCost } from '../providers/usage.js';
+import { extractUsage, calculateCost, createUsageStream } from '../providers/usage.js';
 
 interface ChatBody {
   model: string;
@@ -100,12 +100,17 @@ export async function chatRoutes(fastify: FastifyInstance) {
     const startTime = Date.now();
 
     try {
+      const upstreamBody: any = requestBody;
+      if (stream && (config.providerType === 'OPENAI' || config.providerType === 'DEEPSEEK')) {
+        upstreamBody.stream_options = { include_usage: true };
+      }
+
       const response = await proxyRequest(
         config.baseUrl,
         config.path,
         config.authType,
         config.apiKey,
-        requestBody,
+        upstreamBody,
         model,
         stream
       );
@@ -129,51 +134,28 @@ export async function chatRoutes(fastify: FastifyInstance) {
         reply.header('Cache-Control', 'no-cache');
         reply.header('Connection', 'keep-alive');
 
-        const reader = response.body?.getReader();
-        
-        if (!reader) {
+        if (!response.body) {
           return reply.status(500).send({
             error: { message: 'Failed to read response stream', type: 'internal_error' }
           });
         }
 
-        const streamData = new ReadableStream({
-          async start(controller) {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              controller.enqueue(value);
-            }
-            controller.close();
-          }
+        const latencyMs = Date.now() - startTime;
+        const usageStream = createUsageStream(config.providerType, async (usage) => {
+          const cost = calculateCost(usage, config.pricing || { inputPrice: 0, outputPrice: 0, cachePrice: 0 });
+          await reportUsage(fastify, {
+            apiKey,
+            providerId: config.providerId,
+            model,
+            tokensIn: usage.tokensIn,
+            tokensOut: usage.tokensOut,
+            cachedTokens: usage.cachedTokens,
+            cost,
+            latencyMs
+          });
         });
 
-        const latencyMs = Date.now() - startTime;
-        
-        setTimeout(async () => {
-          try {
-            await fetch(`${process.env.ADMIN_API_URL}/internal/usage/report`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Internal-Secret': process.env.INTERNAL_SECRET || ''
-              },
-              body: JSON.stringify({
-                apiKey,
-                providerId: config.providerId,
-                model,
-                tokensIn: 0,
-                tokensOut: 0,
-                cost: 0,
-                latencyMs
-              })
-            });
-          } catch (err) {
-            fastify.log.error(err, 'Failed to report usage');
-          }
-        }, 100);
-
-        return reply.send(streamData);
+        return reply.send(response.body.pipeThrough(usageStream as any));
       }
 
       const data = await response.json();
