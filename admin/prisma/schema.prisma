@@ -164,7 +164,7 @@ model ProviderProtocol {
   provider   Provider @relation(fields: [providerId], references: [id])
   protocol   Protocol
   path       String?
-  status     String   @default("ACTIVE")
+  status     ProviderStatus @default(ACTIVE)
   createdAt  DateTime @default(now())
 
   @@unique([providerId, protocol])
