@@ -243,17 +243,23 @@ const addModel = async (row: any) => {
   }
 };
 
-const saveModelPrice = async (m: any) => {
-  try {
-    await api.put(`/api/models/${m.id}`, {
-      inputPrice: m.inputPrice ?? 0,
-      outputPrice: m.outputPrice ?? 0,
-      cachePrice: m.cachePrice ?? 0
-    });
-  } catch (e: any) {
-    ElMessage.error(e.response?.data?.error || '价格保存失败');
-    await loadProviders();
-  }
+const priceTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+const saveModelPrice = (m: any) => {
+  if (priceTimers.has(m.id)) clearTimeout(priceTimers.get(m.id));
+  priceTimers.set(m.id, setTimeout(async () => {
+    priceTimers.delete(m.id);
+    try {
+      await api.put(`/api/models/${m.id}`, {
+        inputPrice: m.inputPrice ?? 0,
+        outputPrice: m.outputPrice ?? 0,
+        cachePrice: m.cachePrice ?? 0
+      });
+    } catch (e: any) {
+      ElMessage.error(e.response?.data?.error || '价格保存失败');
+      await loadProviders();
+    }
+  }, 400));
 };
 
 const toggleModel = async (m: any, active: string | number | boolean) => {
