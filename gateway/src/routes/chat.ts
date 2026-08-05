@@ -1,6 +1,7 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyInstance } from 'fastify';
 import { proxyRequest } from '../providers/proxy.js';
 import { extractUsage, calculateCost, createUsageStream, formatFor } from '../providers/usage.js';
+import { resolveProvider, reportUsage } from './helpers.js';
 
 interface ChatBody {
   model: string;
@@ -9,67 +10,6 @@ interface ChatBody {
   temperature?: number;
   max_tokens?: number;
   top_p?: number;
-}
-
-interface ResolvedProvider {
-  model: string;
-  providerId: number;
-  baseUrl: string;
-  path: string;
-  authType: string;
-  apiKey: string;
-  providerType: string;
-  pricing: { inputPrice: number; outputPrice: number; cachePrice: number };
-}
-
-async function resolveProvider(req: FastifyRequest, model: string): Promise<{ ok: true; config: ResolvedProvider } | { ok: false; status: number; body: any }> {
-  const adminUrl = process.env.ADMIN_API_URL || 'http://localhost:3001';
-  const secret = process.env.INTERNAL_SECRET || '';
-  const apiKey = req.headers.authorization?.substring(7) || '';
-
-  try {
-    const response = await fetch(`${adminUrl}/internal/models/resolve`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Internal-Secret': secret
-      },
-      body: JSON.stringify({ apiKey, model })
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({ error: `Resolve failed: ${response.status}` }));
-      return { ok: false, status: response.status, body: err };
-    }
-    const config: ResolvedProvider = await response.json();
-    return { ok: true, config };
-  } catch (err) {
-    req.log.error(err);
-    return {
-      ok: false,
-      status: 500,
-      body: { error: { message: 'Failed to resolve model', type: 'internal_error', code: 'resolve_failed' } }
-    };
-  }
-}
-
-async function reportUsage(fastify: FastifyInstance, payload: any) {
-  try {
-    const adminUrl = process.env.ADMIN_API_URL || 'http://localhost:3001';
-    const response = await fetch(`${adminUrl}/internal/usage/report`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Internal-Secret': process.env.INTERNAL_SECRET || ''
-      },
-      body: JSON.stringify(payload)
-    });
-    if (!response.ok) {
-      fastify.log.warn({ status: response.status }, 'Admin usage report rejected');
-    }
-  } catch (err) {
-    fastify.log.error(err, 'Failed to report usage');
-  }
 }
 
 export async function chatRoutes(fastify: FastifyInstance) {
