@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { PrismaClient, Prisma } from '@prisma/client';
+import { effectiveProtocolPath, DEFAULT_PROTOCOL_PATHS } from '../protocols.js';
 
 const prisma = new PrismaClient();
 
@@ -146,6 +147,22 @@ export async function internalRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: `Key not allowed to use model: ${req.body.model}` });
     }
 
+    const protoRows = await prisma.providerProtocol.findMany({
+      where: { providerId: model.providerId, status: 'ACTIVE' }
+    });
+
+    let protocols = protoRows.map(r => ({
+      protocol: r.protocol,
+      path: effectiveProtocolPath(r.protocol, r.path)
+    }));
+
+    if (!protocols.length) {
+      protocols = [{
+        protocol: 'OPENAI_CHAT',
+        path: effectiveProtocolPath('OPENAI_CHAT', model.provider.path)
+      }];
+    }
+
     const providerKey = decrypt(model.provider.apiKey, process.env.ENCRYPTION_KEY || 'default-key');
 
     return {
@@ -158,7 +175,8 @@ export async function internalRoutes(fastify: FastifyInstance) {
       },
       providerId: model.providerId,
       baseUrl: model.provider.baseUrl,
-      path: model.provider.path || '/chat/completions',
+      path: model.provider.path || DEFAULT_PROTOCOL_PATHS.OPENAI_CHAT,
+      protocols,
       authType: authTypeFor(model.provider.type),
       apiKey: providerKey
     };
