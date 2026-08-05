@@ -6,3 +6,5 @@ dist/
 *.db
 
 .env
+deploy.env
+
