@@ -100,12 +100,12 @@ export async function chatRoutes(fastify: FastifyInstance) {
     const startTime = Date.now();
 
     try {
-      const upstreamBody: any = requestBody;
-      if (stream && (config.providerType === 'OPENAI' || config.providerType === 'DEEPSEEK')) {
-        upstreamBody.stream_options = { include_usage: true };
-      }
+      const injectStreamOptions = stream && (config.providerType === 'OPENAI' || config.providerType === 'DEEPSEEK');
+      const upstreamBody = injectStreamOptions
+        ? { ...requestBody, stream_options: { include_usage: true } }
+        : requestBody;
 
-      const response = await proxyRequest(
+      let response = await proxyRequest(
         config.baseUrl,
         config.path,
         config.authType,
@@ -114,6 +114,18 @@ export async function chatRoutes(fastify: FastifyInstance) {
         model,
         stream
       );
+
+      if (stream && injectStreamOptions && !response.ok) {
+        response = await proxyRequest(
+          config.baseUrl,
+          config.path,
+          config.authType,
+          config.apiKey,
+          requestBody,
+          model,
+          stream
+        );
+      }
 
       if (!response.ok) {
         const error = await response.text();
@@ -141,9 +153,11 @@ export async function chatRoutes(fastify: FastifyInstance) {
         }
 
         const latencyMs = Date.now() - startTime;
-        const usageStream = createUsageStream(config.providerType, async (usage) => {
+        // 流结束时上报用量；fire-and-forget，避免 admin 上报阻塞响应结束。
+        // 中断/出错的流不会触发 flush，故不产生记录（避免误导性的 0 token 记录）。
+        const usageStream = createUsageStream(config.providerType, (usage) => {
           const cost = calculateCost(usage, config.pricing || { inputPrice: 0, outputPrice: 0, cachePrice: 0 });
-          await reportUsage(fastify, {
+          reportUsage(fastify, {
             apiKey,
             providerId: config.providerId,
             model,
