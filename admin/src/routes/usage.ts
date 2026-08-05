@@ -15,12 +15,12 @@ export async function usageRoutes(fastify: FastifyInstance) {
     const [totalUsage, todayUsage, topModels] = await Promise.all([
       prisma.usageRecord.aggregate({
         where,
-        _sum: { tokensIn: true, tokensOut: true, cost: true },
+        _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
         _count: true
       }),
       prisma.usageRecord.aggregate({
         where: { ...where, createdAt: { gte: today } },
-        _sum: { tokensIn: true, tokensOut: true, cost: true },
+        _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
         _count: true
       }),
       prisma.usageRecord.groupBy({
@@ -29,7 +29,7 @@ export async function usageRoutes(fastify: FastifyInstance) {
           ...where,
           createdAt: { gte: new Date(today.getFullYear(), today.getMonth(), 1) }
         },
-        _sum: { tokensIn: true, tokensOut: true, cost: true },
+        _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
         orderBy: { _sum: { cost: 'desc' } },
         take: 10
       })
@@ -40,18 +40,21 @@ export async function usageRoutes(fastify: FastifyInstance) {
         requests: totalUsage._count,
         tokensIn: totalUsage._sum.tokensIn || 0,
         tokensOut: totalUsage._sum.tokensOut || 0,
+        cachedTokens: totalUsage._sum.cachedTokens || 0,
         cost: totalUsage._sum.cost || 0
       },
       today: {
         requests: todayUsage._count,
         tokensIn: todayUsage._sum.tokensIn || 0,
         tokensOut: todayUsage._sum.tokensOut || 0,
+        cachedTokens: todayUsage._sum.cachedTokens || 0,
         cost: todayUsage._sum.cost || 0
       },
       monthly: topModels.map(m => ({
         model: m.model,
         tokensIn: m._sum.tokensIn || 0,
         tokensOut: m._sum.tokensOut || 0,
+        cachedTokens: m._sum.cachedTokens || 0,
         cost: m._sum.cost || 0
       }))
     };
