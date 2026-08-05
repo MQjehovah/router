@@ -1,7 +1,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
+import { keyVerifyCache, KeyVerifyResult } from '../key-cache.js';
 import { effectiveProtocolPath, DEFAULT_PROTOCOL_PATHS } from '../protocols.js';
 
 const prisma = new PrismaClient();
@@ -38,10 +39,16 @@ interface ReportBody {
   latencyMs: number;
 }
 
-async function verifyKey(apiKey: string): Promise<
-  | { valid: true; keyId: number; userId: number; rateLimit: number; dailyQuota: number; monthlyQuota: number; userBalance: Prisma.Decimal }
-  | { valid: false; reason: string }
-> {
+async function verifyKey(apiKey: string): Promise<KeyVerifyResult> {
+  const cached = keyVerifyCache.get(apiKey);
+  if (cached) return cached;
+
+  const result = await doVerify(apiKey);
+  keyVerifyCache.set(apiKey, result);
+  return result;
+}
+
+async function doVerify(apiKey: string): Promise<KeyVerifyResult> {
   const keys = await prisma.apiKey.findMany({
     where: { status: 'ACTIVE' },
     include: { user: true }

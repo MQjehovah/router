@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { proxyRequest } from '../providers/proxy.js';
-import { extractUsage, calculateCost, createUsageStream, formatFor } from '../providers/usage.js';
-import { resolveProvider, reportUsage, extractApiKey } from './helpers.js';
+import { extractUsage, calculateCost, formatFor } from '../providers/usage.js';
+import { resolveProvider, reportUsage, extractApiKey, createReportedUsageStream, sendUpstreamError } from './helpers.js';
 
 interface ChatBody {
   model: string;
@@ -68,15 +68,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
       }
 
       if (!response.ok) {
-        const error = await response.text();
-        fastify.log.error({ providerId: config.providerId, error }, 'Provider error');
-        return reply.status(502).send({
-          error: {
-            message: `Provider error: ${response.status}`,
-            type: 'provider_error',
-            code: 'provider_error'
-          }
-        });
+        return sendUpstreamError(fastify, reply, response, 'openai');
       }
 
       const apiKey = extractApiKey(req);
@@ -94,19 +86,15 @@ export async function chatRoutes(fastify: FastifyInstance) {
 
         const latencyMs = Date.now() - startTime;
         // 流结束时上报用量；fire-and-forget，避免 admin 上报阻塞响应结束。
-        // 中断/出错的流不会触发 flush，故不产生记录（避免误导性的 0 token 记录）。
-        const usageStream = createUsageStream(formatFor(config.providerType), (usage) => {
-          const cost = calculateCost(usage, config.pricing || { inputPrice: 0, outputPrice: 0, cachePrice: 0 });
-          reportUsage(fastify, {
-            apiKey,
-            providerId: config.providerId,
-            model,
-            tokensIn: usage.tokensIn,
-            tokensOut: usage.tokensOut,
-            cachedTokens: usage.cachedTokens,
-            cost,
-            latencyMs
-          });
+        // 中断/出错的流由 reply close 触发补记部分 token 的 0 费记录，便于对账。
+        const usageStream = createReportedUsageStream(fastify, {
+          apiKey,
+          providerId: config.providerId,
+          model,
+          pricing: config.pricing || { inputPrice: 0, outputPrice: 0, cachePrice: 0 },
+          format: formatFor(config.providerType),
+          reply,
+          latencyMs
         });
 
         return reply.send(response.body.pipeThrough(usageStream as any));

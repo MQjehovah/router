@@ -71,10 +71,10 @@ export function calculateCost(usage: Usage, pricing: Pricing): number {
   );
 }
 
-export function createUsageStream(
+export function createUsageTracker(
   format: UsageFormat,
   onDone: (usage: Usage) => Promise<void> | void
-): TransformStream<Uint8Array, Uint8Array> {
+): { stream: TransformStream<Uint8Array, Uint8Array>; getUsage: () => Usage } {
   const tokens = { in: 0, out: 0, cached: 0 };
   const decoder = new TextDecoder();
   let buffer = '';
@@ -124,7 +124,7 @@ export function createUsageStream(
     try { feed(JSON.parse(payload)); } catch { /* ignore */ }
   };
 
-  return new TransformStream<Uint8Array, Uint8Array>({
+  const stream = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       buffer += decoder.decode(chunk, { stream: true });
       let idx;
@@ -140,4 +140,14 @@ export function createUsageStream(
       await onDone({ tokensIn: tokens.in, tokensOut: tokens.out, cachedTokens: tokens.cached });
     }
   });
+
+  const getUsage = () => ({ tokensIn: tokens.in, tokensOut: tokens.out, cachedTokens: tokens.cached });
+  return { stream, getUsage };
+}
+
+export function createUsageStream(
+  format: UsageFormat,
+  onDone: (usage: Usage) => Promise<void> | void
+): TransformStream<Uint8Array, Uint8Array> {
+  return createUsageTracker(format, onDone).stream;
 }

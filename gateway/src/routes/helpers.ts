@@ -1,4 +1,6 @@
-import { FastifyInstance, FastifyRequest } from 'fastify';
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { Response } from 'undici';
+import { createUsageTracker, calculateCost, Usage, Pricing, UsageFormat } from '../providers/usage.js';
 
 export interface ProtocolPath {
   protocol: string;
@@ -86,4 +88,82 @@ export function openAiError(message: string, type: string, code?: string) {
 
 export function anthropicError(type: string, message: string) {
   return { type: 'error', error: { type, message } };
+}
+
+export interface ReportedUsageStreamOptions {
+  apiKey: string;
+  providerId: number;
+  model: string;
+  pricing: Pricing;
+  format: UsageFormat;
+  reply: FastifyReply;
+  latencyMs: number;
+}
+
+export function createReportedUsageStream(
+  fastify: FastifyInstance,
+  opts: ReportedUsageStreamOptions
+): TransformStream<Uint8Array, Uint8Array> {
+  let reported = false;
+  const report = (usage: Usage, cost: number) => {
+    if (reported) return;
+    reported = true;
+    reportUsage(fastify, {
+      apiKey: opts.apiKey,
+      providerId: opts.providerId,
+      model: opts.model,
+      tokensIn: usage.tokensIn,
+      tokensOut: usage.tokensOut,
+      cachedTokens: usage.cachedTokens,
+      cost,
+      latencyMs: opts.latencyMs
+    });
+  };
+
+  const { stream, getUsage } = createUsageTracker(opts.format, usage => report(usage, calculateCost(usage, opts.pricing)));
+
+  opts.reply.raw.on('close', () => {
+    const partial = getUsage();
+    if (!reported && (partial.tokensIn > 0 || partial.tokensOut > 0 || partial.cachedTokens > 0)) {
+      report(partial, 0);
+    }
+  });
+
+  return stream;
+}
+
+export async function sendUpstreamError(
+  fastify: FastifyInstance,
+  reply: FastifyReply,
+  response: Response,
+  envelope: 'openai' | 'anthropic' = 'openai'
+): Promise<FastifyReply> {
+  const status = response.status;
+  const raw = await response.text();
+  fastify.log.error({ upstreamStatus: status, body: raw.slice(0, 500) }, 'Provider error');
+
+  let parsed: any = null;
+  try {
+    parsed = raw ? JSON.parse(raw) : null;
+  } catch {
+    parsed = null;
+  }
+
+  if (parsed && typeof parsed === 'object') {
+    if (parsed.error && typeof parsed.error === 'object' && (parsed.error.message || parsed.error.type || parsed.error.code)) {
+      return reply.status(status).send(parsed);
+    }
+    if (parsed.type === 'error' && parsed.error) {
+      return reply.status(status).send(parsed);
+    }
+    const msg = parsed.error?.message || parsed.message || JSON.stringify(parsed).slice(0, 500);
+    return reply.status(status).send(
+      envelope === 'anthropic' ? anthropicError('api_error', msg) : openAiError(msg, 'provider_error', 'provider_error')
+    );
+  }
+
+  const msg = raw.slice(0, 500) || `Provider error: ${status}`;
+  return reply.status(status).send(
+    envelope === 'anthropic' ? anthropicError('api_error', msg) : openAiError(msg, 'provider_error', 'provider_error')
+  );
 }

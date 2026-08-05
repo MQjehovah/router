@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
+import { keyVerifyCache } from '../key-cache.js';
 
 const prisma = new PrismaClient();
 
@@ -80,6 +81,8 @@ export async function keyRoutes(fastify: FastifyInstance) {
       }
     });
 
+    keyVerifyCache.clear();
+
     return {
       id: apiKey.id,
       key: rawKey,
@@ -105,6 +108,8 @@ export async function keyRoutes(fastify: FastifyInstance) {
     if (req.user.role !== 'ADMIN' && key.userId !== req.user.id) {
       return reply.status(403).send({ error: 'Forbidden' });
     }
+
+    keyVerifyCache.clear();
 
     const data: any = {};
     if (req.body.name) data.name = req.body.name;
@@ -143,6 +148,7 @@ export async function keyRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
+    keyVerifyCache.clear();
     const rawKey = generateApiKey();
     await prisma.apiKey.update({
       where: { id: keyId },
@@ -172,6 +178,7 @@ export async function keyRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
+    keyVerifyCache.clear();
     await prisma.apiKey.delete({ where: { id: keyId } });
     return { success: true };
   });

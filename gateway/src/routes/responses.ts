@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { proxyRequest } from '../providers/proxy.js';
-import { extractUsageByFormat, calculateCost, createUsageStream } from '../providers/usage.js';
-import { resolveProvider, reportUsage, findProtocol, openAiError, extractApiKey } from './helpers.js';
+import { extractUsageByFormat, calculateCost } from '../providers/usage.js';
+import { resolveProvider, reportUsage, findProtocol, openAiError, extractApiKey, createReportedUsageStream, sendUpstreamError } from './helpers.js';
 
 interface ResponsesBody {
   model: string;
@@ -45,9 +45,7 @@ export async function responsesRoutes(fastify: FastifyInstance) {
       const response = await proxyRequest(config.baseUrl, proto.path, config.authType, config.apiKey, req.body, model, stream, forwarded);
 
       if (!response.ok) {
-        const error = await response.text();
-        fastify.log.error({ providerId: config.providerId, error }, 'Provider error');
-        return reply.status(502).send(openAiError(`Provider error: ${response.status}`, 'provider_error', 'provider_error'));
+        return sendUpstreamError(fastify, reply, response, 'openai');
       }
 
       if (stream) {
@@ -60,13 +58,14 @@ export async function responsesRoutes(fastify: FastifyInstance) {
         }
 
         const latencyMs = Date.now() - startTime;
-        const usageStream = createUsageStream('responses', (usage) => {
-          const cost = calculateCost(usage, config.pricing || { inputPrice: 0, outputPrice: 0, cachePrice: 0 });
-          reportUsage(fastify, {
-            apiKey, providerId: config.providerId, model,
-            tokensIn: usage.tokensIn, tokensOut: usage.tokensOut, cachedTokens: usage.cachedTokens,
-            cost, latencyMs
-          });
+        const usageStream = createReportedUsageStream(fastify, {
+          apiKey,
+          providerId: config.providerId,
+          model,
+          pricing: config.pricing || { inputPrice: 0, outputPrice: 0, cachePrice: 0 },
+          format: 'responses',
+          reply,
+          latencyMs
         });
 
         return reply.send(response.body.pipeThrough(usageStream as any));
