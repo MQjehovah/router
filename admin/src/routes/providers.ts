@@ -98,11 +98,13 @@ export async function providerRoutes(fastify: FastifyInstance) {
     }
 
     const providers = await prisma.provider.findMany({
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      include: { protocols: true }
     });
 
     return providers.map(p => ({
       ...p,
+      protocols: p.protocols,
       apiKey: p.apiKey.substring(0, 8) + '****',
       createdAt: p.createdAt.toISOString()
     }));
@@ -125,6 +127,12 @@ export async function providerRoutes(fastify: FastifyInstance) {
         path: req.body.path || '/chat/completions',
         apiKey: encryptedKey
       }
+    });
+
+    await prisma.providerProtocol.upsert({
+      where: { providerId_protocol: { providerId: provider.id, protocol: 'OPENAI_CHAT' } },
+      create: { providerId: provider.id, protocol: 'OPENAI_CHAT', path: req.body.path || null },
+      update: {}
     });
 
     return { ...provider, apiKey: req.body.apiKey };
@@ -184,6 +192,54 @@ export async function providerRoutes(fastify: FastifyInstance) {
 
     const providerId = parseInt(req.params.id);
     await prisma.provider.delete({ where: { id: providerId } });
+    return { success: true };
+  });
+
+  fastify.get<{ Params: { id: string } }>('/api/providers/:id/protocols', {
+    preHandler: [fastify.authenticate]
+  }, async (req, reply) => {
+    if (req.user.role !== 'ADMIN') return reply.status(403).send({ error: 'Forbidden' });
+    const rows = await prisma.providerProtocol.findMany({
+      where: { providerId: parseInt(req.params.id) },
+      orderBy: { id: 'asc' }
+    });
+    return rows;
+  });
+
+  fastify.post<{ Params: { id: string }, Body: { protocol: string; path?: string } }>('/api/providers/:id/protocols', {
+    preHandler: [fastify.authenticate]
+  }, async (req, reply) => {
+    if (req.user.role !== 'ADMIN') return reply.status(403).send({ error: 'Forbidden' });
+    const providerId = parseInt(req.params.id);
+    const { protocol, path } = req.body;
+    if (!protocol) return reply.status(400).send({ error: 'protocol is required' });
+    const row = await prisma.providerProtocol.upsert({
+      where: { providerId_protocol: { providerId, protocol: protocol as any } },
+      create: { providerId, protocol: protocol as any, path: path || null },
+      update: { path: path || null }
+    });
+    return row;
+  });
+
+  fastify.put<{ Params: { id: string; protocolId: string }, Body: { path?: string; status?: string } }>('/api/providers/:id/protocols/:protocolId', {
+    preHandler: [fastify.authenticate]
+  }, async (req, reply) => {
+    if (req.user.role !== 'ADMIN') return reply.status(403).send({ error: 'Forbidden' });
+    const data: any = {};
+    if (req.body.path !== undefined) data.path = req.body.path || null;
+    if (req.body.status) data.status = req.body.status;
+    const row = await prisma.providerProtocol.update({
+      where: { id: parseInt(req.params.protocolId) },
+      data
+    });
+    return row;
+  });
+
+  fastify.delete<{ Params: { id: string; protocolId: string } }>('/api/providers/:id/protocols/:protocolId', {
+    preHandler: [fastify.authenticate]
+  }, async (req, reply) => {
+    if (req.user.role !== 'ADMIN') return reply.status(403).send({ error: 'Forbidden' });
+    await prisma.providerProtocol.delete({ where: { id: parseInt(req.params.protocolId) } });
     return { success: true };
   });
 }
