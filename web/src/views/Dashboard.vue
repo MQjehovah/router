@@ -87,7 +87,7 @@ const statCards = computed(() => [
     label: '缓存命中', icon: Odometer,
     grad: 'linear-gradient(135deg, rgba(168,85,247,.18), rgba(168,85,247,.05))',
     value: (stats.value.total?.cachedTokens ?? 0).toLocaleString(),
-    hint: '累计缓存命中 token'
+    hint: '其中输入 Token 的缓存部分'
   },
   {
     label: '总消费', icon: Coin,
