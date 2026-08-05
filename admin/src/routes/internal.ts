@@ -32,6 +32,7 @@ interface ReportBody {
   model: string;
   tokensIn: number;
   tokensOut: number;
+  cachedTokens: number;
   cost: number;
   latencyMs: number;
 }
@@ -149,6 +150,12 @@ export async function internalRoutes(fastify: FastifyInstance) {
 
     return {
       model: model.name,
+      providerType: model.provider.type,
+      pricing: {
+        inputPrice: model.inputPrice.toNumber(),
+        outputPrice: model.outputPrice.toNumber(),
+        cachePrice: model.cachePrice.toNumber()
+      },
       providerId: model.providerId,
       baseUrl: model.provider.baseUrl,
       path: model.provider.path || '/chat/completions',
@@ -175,6 +182,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
         apiKeyId: verifyResult.keyId,
         providerId,
         model,
+        cachedTokens: req.body.cachedTokens ?? 0,
         tokensIn,
         tokensOut,
         cost,
