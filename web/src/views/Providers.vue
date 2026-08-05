@@ -34,6 +34,45 @@
         <el-table-column type="expand">
           <template #default="{ row }">
             <div class="model-panel">
+              <div class="proto-panel">
+                <div class="proto-head">
+                  <span class="proto-title">支持的协议（直通端点）</span>
+                </div>
+                <el-table v-if="(row.protocols || []).length" :data="row.protocols" size="small" class="proto-table">
+                  <el-table-column label="协议" width="200">
+                    <template #default="{ row: p }">
+                      <span class="proto-name font-mono">{{ protocolLabel(p.protocol) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="路径（空=协议默认）" min-width="220">
+                    <template #default="{ row: p }">
+                      <el-input
+                        :model-value="p.path || ''"
+                        :placeholder="defaultPath(p.protocol)"
+                        size="small"
+                        @change="(v: string) => saveProtocolPath(row, p, v)"
+                      />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="状态" width="90">
+                    <template #default="{ row: p }">
+                      <el-switch :model-value="p.status === 'ACTIVE'" size="small" @change="(v: string | number | boolean) => toggleProtocol(row, p, v)" />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="删除" width="70" align="right">
+                    <template #default="{ row: p }">
+                      <el-button text type="danger" :icon="Delete" size="small" @click="deleteProtocol(row, p)" />
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <div class="proto-add">
+                  <el-select v-model="row._newProtocol" placeholder="选择协议" clearable size="small">
+                    <el-option v-for="opt in availableProtocols(row)" :key="opt" :label="protocolLabel(opt)" :value="opt" />
+                  </el-select>
+                  <el-button type="primary" :icon="Plus" size="small" @click="addProtocol(row)">添加协议</el-button>
+                </div>
+                <div v-if="!(row.protocols || []).length" class="proto-empty">未配置协议，默认按 OPENAI_CHAT 直通</div>
+              </div>
               <div class="model-add">
                 <el-input
                   v-model="newModelName"
@@ -179,6 +218,66 @@ import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import { Plus, Search, Refresh, Edit, Delete, Aim } from '@element-plus/icons-vue';
 import api from '../api';
+
+const PROTOCOL_DEFAULTS: Record<string, string> = {
+  OPENAI_CHAT: '/chat/completions',
+  OPENAI_RESPONSES: '/responses',
+  ANTHROPIC_MESSAGES: '/v1/messages'
+};
+const PROTOCOL_LABELS: Record<string, string> = {
+  OPENAI_CHAT: 'OpenAI Chat',
+  OPENAI_RESPONSES: 'OpenAI Responses',
+  ANTHROPIC_MESSAGES: 'Anthropic Messages'
+};
+const protocolLabel = (p: string) => PROTOCOL_LABELS[p] || p;
+const defaultPath = (p: string) => PROTOCOL_DEFAULTS[p] || '';
+const availableProtocols = (row: any) =>
+  Object.keys(PROTOCOL_DEFAULTS).filter(p => !(row.protocols || []).some((rp: any) => rp.protocol === p));
+
+const addProtocol = async (row: any) => {
+  const protocol = row._newProtocol;
+  if (!protocol) { ElMessage.warning('请选择协议'); return; }
+  try {
+    await api.post(`/api/providers/${row.id}/protocols`, { protocol });
+    ElMessage.success('协议已添加');
+    row._newProtocol = '';
+    await loadProviders();
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '添加失败');
+  }
+};
+
+const saveProtocolPath = async (row: any, p: any, path: string) => {
+  try {
+    await api.put(`/api/providers/${row.id}/protocols/${p.id}`, { path });
+    ElMessage.success('路径已保存');
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '保存失败');
+    await loadProviders();
+  }
+};
+
+const toggleProtocol = async (row: any, p: any, active: string | number | boolean) => {
+  try {
+    await api.put(`/api/providers/${row.id}/protocols/${p.id}`, { status: active ? 'ACTIVE' : 'INACTIVE' });
+    ElMessage.success(active ? '已启用' : '已停用');
+    await loadProviders();
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '操作失败');
+    await loadProviders();
+  }
+};
+
+const deleteProtocol = async (row: any, p: any) => {
+  try {
+    await ElMessageBox.confirm(`确定删除协议「${protocolLabel(p.protocol)}」吗？`, '删除确认', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' });
+    await api.delete(`/api/providers/${row.id}/protocols/${p.id}`);
+    ElMessage.success('已删除');
+    await loadProviders();
+  } catch (e: any) {
+    if (e !== 'cancel') ElMessage.error(e.response?.data?.error || '删除失败');
+  }
+};
 
 const providers = ref<any[]>([]);
 const models = ref<any[]>([]);
@@ -395,6 +494,14 @@ onMounted(loadProviders);
 .url, .key { font-size: 12px; color: var(--text-2); background: var(--bg-deep); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); }
 .row-btn { padding: 6px; }
 .field-hint { font-size: 12px; color: var(--text-3); margin-top: 4px; line-height: 1.4; }
+
+.proto-panel { padding: 4px 12px 12px; margin-top: 10px; }
+.proto-head { margin-bottom: 8px; }
+.proto-title { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.proto-add { display: flex; gap: 10px; max-width: 360px; margin-top: 10px; }
+.proto-table { margin-top: 2px; }
+.proto-name { font-size: 12px; font-weight: 600; color: #fcd34d; background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.2); padding: 2px 8px; border-radius: 6px; }
+.proto-empty { font-size: 12px; color: var(--text-3); padding: 6px 2px; }
 
 .model-panel { padding: 4px 12px 12px; }
 .model-add { display: flex; gap: 10px; max-width: 520px; margin-bottom: 12px; }
