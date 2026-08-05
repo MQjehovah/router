@@ -2,8 +2,8 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import dotenv from 'dotenv';
 
-import { authMiddleware } from './middleware/auth.js';
-import { rateLimitMiddleware } from './middleware/rate-limit.js';
+import { authenticate } from './middleware/auth.js';
+import { rateLimit } from './middleware/rate-limit.js';
 import { chatRoutes } from './routes/chat.js';
 
 dotenv.config();
@@ -15,8 +15,9 @@ await fastify.register(cors, {
   credentials: true
 });
 
-await fastify.register(authMiddleware);
-await fastify.register(rateLimitMiddleware);
+fastify.decorate('authenticate', authenticate);
+fastify.decorate('rateLimit', rateLimit);
+
 await fastify.register(chatRoutes);
 
 fastify.get('/health', async () => {

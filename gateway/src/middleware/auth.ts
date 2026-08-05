@@ -1,4 +1,4 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyRequest, FastifyReply } from 'fastify';
 
 const ADMIN_API_URL = process.env.ADMIN_API_URL || 'http://localhost:3001';
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET || '';
@@ -12,53 +12,51 @@ export interface AuthData {
   userBalance: number;
 }
 
-export async function authMiddleware(fastify: FastifyInstance) {
-  fastify.decorate('authenticate', async (req: FastifyRequest, reply: FastifyReply) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return reply.status(401).send({
+      error: {
+        message: 'Missing or invalid authorization header',
+        type: 'authentication_error',
+        code: 'missing_authorization'
+      }
+    });
+  }
+
+  const apiKey = authHeader.substring(7);
+
+  try {
+    const response = await fetch(`${ADMIN_API_URL}/internal/keys/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Secret': INTERNAL_SECRET
+      },
+      body: JSON.stringify({ apiKey })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
       return reply.status(401).send({
         error: {
-          message: 'Missing or invalid authorization header',
+          message: error.error || 'Invalid API key',
           type: 'authentication_error',
-          code: 'missing_authorization'
+          code: 'invalid_api_key'
         }
       });
     }
 
-    const apiKey = authHeader.substring(7);
-    
-    try {
-      const response = await fetch(`${ADMIN_API_URL}/internal/keys/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Internal-Secret': INTERNAL_SECRET
-        },
-        body: JSON.stringify({ apiKey })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        return reply.status(401).send({
-          error: {
-            message: error.error || 'Invalid API key',
-            type: 'authentication_error',
-            code: 'invalid_api_key'
-          }
-        });
+    const authData: AuthData = await response.json();
+    (req as any).authData = authData;
+  } catch (err) {
+    req.log.error(err);
+    return reply.status(500).send({
+      error: {
+        message: 'Failed to verify API key',
+        type: 'internal_error',
+        code: 'verification_failed'
       }
-
-      const authData: AuthData = await response.json();
-      (req as any).authData = authData;
-    } catch (err) {
-      fastify.log.error(err);
-      return reply.status(500).send({
-        error: {
-          message: 'Failed to verify API key',
-          type: 'internal_error',
-          code: 'verification_failed'
-        }
-      });
-    }
-  });
+    });
+  }
 }
