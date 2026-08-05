@@ -6,6 +6,7 @@ interface User {
   email: string;
   name: string;
   role: string;
+  balance?: number;
 }
 
 export const useAuthStore = defineStore('auth', {
@@ -14,7 +15,7 @@ export const useAuthStore = defineStore('auth', {
     token: localStorage.getItem('token') || ''
   }),
   getters: {
-    isAdmin: () => this.user?.role === 'ADMIN'
+    isAdmin: (state) => state.user?.role === 'ADMIN'
   },
   actions: {
     async login(email: string, password: string) {

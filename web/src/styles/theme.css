@@ -1,0 +1,252 @@
+:root {
+  --brand: #22d3ee;
+  --brand-strong: #06b6d4;
+  --brand-grad: linear-gradient(135deg, #22d3ee 0%, #6366f1 100%);
+  --brand-glow: rgba(34, 211, 238, 0.35);
+
+  --bg-page: #070b14;
+  --bg-deep: #0b101d;
+  --bg-surface: #0f1626;
+  --bg-surface-2: #141d30;
+  --bg-hover: #1a2540;
+
+  --text-1: #e6edf7;
+  --text-2: #94a3b8;
+  --text-3: #64748b;
+
+  --border: rgba(148, 163, 184, 0.14);
+  --border-strong: rgba(148, 163, 184, 0.26);
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --radius-lg: 20px;
+
+  --shadow-card: 0 1px 0 rgba(148, 163, 184, 0.06) inset, 0 12px 32px -18px rgba(0, 0, 0, 0.8);
+  --shadow-pop: 0 24px 60px -24px rgba(0, 0, 0, 0.9);
+
+  --font-ui: 'Space Grotesk Variable', 'Inter', 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+
+html.dark {
+  --el-bg-color: var(--bg-surface);
+  --el-bg-color-page: var(--bg-page);
+  --el-bg-color-overlay: var(--bg-surface-2);
+  --el-color-primary: #22d3ee;
+  --el-color-primary-light-3: #7dd3fc;
+  --el-color-primary-light-5: #38bdf8;
+  --el-color-primary-light-7: #164e63;
+  --el-color-primary-light-8: #155e75;
+  --el-color-primary-light-9: #0c4a6e;
+  --el-color-primary-dark-2: #06b6d4;
+  --el-color-success: #34d399;
+  --el-color-warning: #fbbf24;
+  --el-color-danger: #fb7185;
+  --el-color-error: #fb7185;
+  --el-color-info: #64748b;
+  --el-text-color-primary: var(--text-1);
+  --el-text-color-regular: var(--text-2);
+  --el-text-color-secondary: var(--text-3);
+  --el-text-color-placeholder: #475569;
+  --el-border-color: var(--border);
+  --el-border-color-light: var(--border);
+  --el-border-color-lighter: rgba(148, 163, 184, 0.1);
+  --el-border-color-hover: var(--border-strong);
+  --el-fill-color: #1a2540;
+  --el-fill-color-light: #141d30;
+  --el-fill-color-lighter: #111a2b;
+  --el-fill-color-blank: var(--bg-surface);
+  --el-fill-color-dark: #0d1424;
+  --el-mask-color: rgba(4, 8, 16, 0.7);
+  --el-box-shadow: var(--shadow-pop);
+  --el-box-shadow-light: 0 8px 24px -12px rgba(0, 0, 0, 0.8);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100vh;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  background: var(--bg-page);
+  color: var(--text-1);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* subtle ambient glow + grid backdrop */
+#app::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(600px 320px at 78% -10%, rgba(99, 102, 241, 0.16), transparent 60%),
+    radial-gradient(520px 300px at -5% 20%, rgba(34, 211, 238, 0.1), transparent 60%),
+    linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px);
+  background-size: auto, auto, 44px 44px, 44px 44px;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.28);
+}
+
+/* scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1c2a44;
+  border-radius: 6px;
+  border: 2px solid var(--bg-page);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #27375a;
+}
+
+/* typography helpers */
+.font-mono,
+.el-table td,
+.el-table th {
+  font-variant-numeric: tabular-nums;
+}
+
+.page {
+  animation: pageIn 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* cards */
+.tech-card {
+  background: linear-gradient(180deg, var(--bg-surface) 0%, rgba(15, 22, 38, 0.82) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+
+/* buttons */
+.el-button {
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  transition: all 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.el-button:active {
+  transform: scale(0.97);
+}
+.el-button--primary {
+  background-image: var(--brand-grad);
+  border: none;
+  box-shadow: 0 6px 18px -8px var(--brand-glow);
+}
+.el-button--primary:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 8px 24px -8px var(--brand-glow);
+}
+.el-button.is-link,
+.el-button.is-text {
+  transition: color 0.2s;
+}
+
+/* inputs / selects */
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner,
+.el-input-number .el-input__wrapper {
+  background: var(--bg-deep) !important;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--border) inset !important;
+  transition: box-shadow 0.2s;
+}
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused,
+.el-textarea__inner:focus,
+.el-input-number .el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--brand) inset, 0 0 0 4px rgba(34, 211, 238, 0.14) !important;
+}
+.el-input__inner,
+.el-textarea__inner {
+  font-family: var(--font-ui);
+}
+
+/* tables */
+.el-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: rgba(20, 29, 48, 0.7);
+  --el-table-border-color: var(--border);
+  --el-table-row-hover-bg-color: var(--bg-hover);
+  background: transparent;
+  border-radius: var(--radius-sm);
+}
+.el-table th.el-table__cell {
+  color: var(--text-2);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.el-table .cell {
+  line-height: 1.6;
+}
+
+/* tags */
+.el-tag {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+/* dialogs / drawers */
+.el-dialog {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+}
+.el-dialog__title {
+  font-weight: 600;
+  color: var(--text-1);
+}
+.el-overlay {
+  backdrop-filter: blur(6px);
+}
+
+/* pagination */
+.el-pagination {
+  --el-pagination-bg-color: transparent;
+  --el-pagination-button-bg-color: var(--bg-deep);
+  font-family: var(--font-mono);
+}
+
+/* message / message box */
+.el-message,
+.el-message-box {
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface-2);
+}
+
+/* skeleton */
+.el-skeleton__item {
+  background: linear-gradient(90deg, var(--bg-surface-2) 25%, var(--bg-hover) 37%, var(--bg-surface-2) 63%);
+  background-size: 400% 100%;
+}

@@ -79,4 +79,41 @@ export async function usageRoutes(fastify: FastifyInstance) {
 
     return { records, total };
   });
+
+  fastify.get('/api/usage/trend', {
+    preHandler: [fastify.authenticate]
+  }, async (req: FastifyRequest, reply: FastifyReply) => {
+    const days = Math.min(Math.max(parseInt(req.query.days as string) || 7, 1), 30);
+    const where = req.user.role === 'ADMIN' ? {} : { apiKey: { userId: req.user.id } };
+
+    const now = new Date();
+    const start = new Date(now.getTime() - (days - 1) * 86400000);
+    start.setHours(0, 0, 0, 0);
+
+    const grouped = await prisma.usageRecord.groupBy({
+      by: ['createdAt'],
+      where: { ...where, createdAt: { gte: start } },
+      _sum: { tokensIn: true, tokensOut: true, cost: true },
+      _count: true
+    });
+
+    const byDay = new Map<string, { requests: number; tokens: number; cost: number }>();
+    for (let i = 0; i < days; i++) {
+      const d = new Date(start.getTime() + i * 86400000);
+      const key = d.toISOString().slice(0, 10);
+      byDay.set(key, { requests: 0, tokens: 0, cost: 0 });
+    }
+
+    for (const g of grouped) {
+      const key = g.createdAt.toISOString().slice(0, 10);
+      const entry = byDay.get(key);
+      if (entry) {
+        entry.requests += g._count;
+        entry.tokens += (g._sum.tokensIn || 0) + (g._sum.tokensOut || 0);
+        entry.cost += Number(g._sum.cost || 0);
+      }
+    }
+
+    return [...byDay.entries()].map(([date, v]) => ({ date, ...v }));
+  });
 }

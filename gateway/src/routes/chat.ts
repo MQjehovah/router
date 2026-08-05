@@ -10,11 +10,11 @@ interface ChatBody {
   top_p?: number;
 }
 
-const PROVIDER_CONFIG: Record<string, { baseUrl: string; path: string }> = {
-  openai: { baseUrl: 'https://api.openai.com/v1', path: '/chat/completions' },
-  anthropic: { baseUrl: 'https://api.anthropic.com/v1', path: '/messages' },
-  google: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta', path: '/models' },
-  huggingface: { baseUrl: 'https://api-inference.huggingface.co', path: '/pipelines' }
+const PROVIDER_CONFIG: Record<string, { baseUrl: string; path: string; envKey: string; providerId: number }> = {
+  gpt: { baseUrl: 'https://api.openai.com/v1', path: '/chat/completions', envKey: 'OPENAI_API_KEY', providerId: 1 },
+  claude: { baseUrl: 'https://api.anthropic.com/v1', path: '/messages', envKey: 'ANTHROPIC_API_KEY', providerId: 2 },
+  gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta', path: '/models', envKey: 'GOOGLE_API_KEY', providerId: 3 },
+  hf: { baseUrl: 'https://api-inference.huggingface.co', path: '/pipelines', envKey: 'HUGGINGFACE_API_KEY', providerId: 4 }
 };
 
 export async function chatRoutes(fastify: FastifyInstance) {
@@ -47,11 +47,11 @@ export async function chatRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const apiKey = process.env[`${providerName.toUpperCase()}_API_KEY`] || '';
+    const apiKey = process.env[config.envKey] || '';
     if (!apiKey) {
       return reply.status(500).send({
         error: {
-          message: `Provider not configured: ${providerName}`,
+          message: `Provider not configured: ${config.envKey}`,
           type: 'internal_error',
           code: 'provider_not_configured'
         }
@@ -124,7 +124,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
               },
               body: JSON.stringify({
                 apiKey: req.headers.authorization?.substring(7),
-                providerId: 1,
+                providerId: config.providerId,
                 model,
                 tokensIn: 0,
                 tokensOut: 0,
@@ -154,7 +154,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
             },
             body: JSON.stringify({
               apiKey: req.headers.authorization?.substring(7),
-              providerId: 1,
+              providerId: config.providerId,
               model,
               tokensIn: data.usage?.prompt_tokens || 0,
               tokensOut: data.usage?.completion_tokens || 0,

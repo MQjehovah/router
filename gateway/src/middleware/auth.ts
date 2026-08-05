@@ -1,8 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 
-const ADMIN_API_URL = process.env.ADMIN_API_URL || 'http://localhost:3001';
-const INTERNAL_SECRET = process.env.INTERNAL_SECRET || '';
-
 export interface AuthData {
   keyId: number;
   userId: number;
@@ -25,13 +22,15 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
   }
 
   const apiKey = authHeader.substring(7);
+  const adminUrl = process.env.ADMIN_API_URL || 'http://localhost:3001';
+  const secret = process.env.INTERNAL_SECRET || '';
 
   try {
-    const response = await fetch(`${ADMIN_API_URL}/internal/keys/verify`, {
+    const response = await fetch(`${adminUrl}/internal/keys/verify`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Internal-Secret': INTERNAL_SECRET
+        'X-Internal-Secret': secret
       },
       body: JSON.stringify({ apiKey })
     });

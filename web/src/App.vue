@@ -1,18 +1,24 @@
 <template>
+  <a class="skip-link" href="#app-main">跳到主内容</a>
   <router-view />
 </template>
 
 <script setup lang="ts">
 </script>
 
-<style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+<style scoped>
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 999;
+  padding: 8px 16px;
+  background: var(--brand);
+  color: #06202a;
+  font-weight: 600;
+  border-radius: 0 0 8px 0;
 }
-#app {
-  min-height: 100vh;
-  background: #f5f7fa;
+.skip-link:focus {
+  left: 0;
 }
 </style>

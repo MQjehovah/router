@@ -11,5 +11,16 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  build: {
+    chunkSizeWarningLimit: 800,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'element-plus': ['element-plus'],
+          echarts: ['echarts/core', 'echarts/charts', 'echarts/components', 'echarts/renderers', 'vue-echarts']
+        }
+      }
+    }
   }
 });
