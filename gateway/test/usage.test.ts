@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractUsage, calculateCost, createUsageStream } from '../src/providers/usage.js';
+import { extractUsage, extractUsageByFormat, calculateCost, createUsageStream } from '../src/providers/usage.js';
 
 test('extractUsage: OpenAI cached via prompt_tokens_details', () => {
   const u = extractUsage('OPENAI', { usage: { prompt_tokens: 100, completion_tokens: 50, prompt_tokens_details: { cached_tokens: 30 } } });
@@ -108,4 +108,25 @@ test('createUsageStream: OpenAI final chunk with usage; [DONE] and comment lines
     'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":30,"completion_tokens":12,"prompt_tokens_details":{"cached_tokens":9}}}',
   ]);
   assert.deepEqual(reported, { tokensIn: 30, tokensOut: 12, cachedTokens: 9 });
+});
+
+test('extractUsageByFormat: responses non-stream', () => {
+  const u = extractUsageByFormat('responses', {
+    usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150, input_tokens_details: { cached_tokens: 30 } }
+  });
+  assert.deepEqual(u, { tokensIn: 100, tokensOut: 50, cachedTokens: 30 });
+});
+
+test('extractUsageByFormat: responses missing cached -> 0', () => {
+  const u = extractUsageByFormat('responses', { usage: { input_tokens: 10, output_tokens: 5 } });
+  assert.deepEqual(u, { tokensIn: 10, tokensOut: 5, cachedTokens: 0 });
+});
+
+test('createUsageStream: responses response.completed usage', async () => {
+  const reported = await collectStream('responses', [
+    'data: {"type":"response.output_text.delta","delta":"hi"}\n\n',
+    'data: {"type":"response.completed","response":{"usage":{"input_tokens":200,"output_tokens":90,"input_tokens_details":{"cached_tokens":150}}}}\n\n',
+    'data: [DONE]\n\n'
+  ]);
+  assert.deepEqual(reported, { tokensIn: 200, tokensOut: 90, cachedTokens: 150 });
 });

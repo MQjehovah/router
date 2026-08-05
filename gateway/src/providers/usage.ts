@@ -10,8 +10,26 @@ export interface Usage {
   cachedTokens: number;
 }
 
-function readUsage(providerType: string, raw: any): Usage {
-  if (providerType === 'ANTHROPIC') {
+export type UsageFormat = 'chat' | 'responses' | 'anthropic' | 'google';
+
+function formatFor(providerType: string): UsageFormat {
+  switch (providerType) {
+    case 'ANTHROPIC': return 'anthropic';
+    case 'GOOGLE': return 'google';
+    default: return 'chat';
+  }
+}
+
+function readUsageByFormat(format: UsageFormat, raw: any): Usage {
+  if (format === 'responses') {
+    const u = raw?.usage || {};
+    return {
+      tokensIn: u.input_tokens || 0,
+      tokensOut: u.output_tokens || 0,
+      cachedTokens: u.input_tokens_details?.cached_tokens || 0
+    };
+  }
+  if (format === 'anthropic') {
     const u = raw?.usage || {};
     return {
       tokensIn: u.input_tokens || 0,
@@ -19,7 +37,7 @@ function readUsage(providerType: string, raw: any): Usage {
       cachedTokens: u.cache_read_input_tokens || 0
     };
   }
-  if (providerType === 'GOOGLE') {
+  if (format === 'google') {
     const u = raw?.usageMetadata || {};
     return {
       tokensIn: u.promptTokenCount || 0,
@@ -36,7 +54,11 @@ function readUsage(providerType: string, raw: any): Usage {
 }
 
 export function extractUsage(providerType: string, body: any): Usage {
-  return readUsage(providerType, body);
+  return readUsageByFormat(formatFor(providerType), body);
+}
+
+export function extractUsageByFormat(format: UsageFormat, body: any): Usage {
+  return readUsageByFormat(format, body);
 }
 
 export function calculateCost(usage: Usage, pricing: Pricing): number {
@@ -50,15 +72,27 @@ export function calculateCost(usage: Usage, pricing: Pricing): number {
 }
 
 export function createUsageStream(
-  providerType: string,
+  formatOrType: UsageFormat | string,
   onDone: (usage: Usage) => Promise<void> | void
 ): TransformStream<Uint8Array, Uint8Array> {
+  const format: UsageFormat = (['chat', 'responses', 'anthropic', 'google'] as const).includes(formatOrType as any)
+    ? formatOrType as UsageFormat
+    : formatFor(formatOrType);
   const tokens = { in: 0, out: 0, cached: 0 };
   const decoder = new TextDecoder();
   let buffer = '';
 
   const feed = (json: any) => {
-    if (providerType === 'ANTHROPIC') {
+    if (format === 'responses') {
+      if (json?.type === 'response.completed') {
+        const u = readUsageByFormat('responses', json.response);
+        tokens.in = u.tokensIn;
+        tokens.out = u.tokensOut;
+        tokens.cached = u.cachedTokens;
+      }
+      return;
+    }
+    if (format === 'anthropic') {
       if (json?.type === 'message_start') {
         const u = json?.message?.usage || {};
         tokens.in = u.input_tokens || 0;
@@ -68,9 +102,9 @@ export function createUsageStream(
       }
       return;
     }
-    if (providerType === 'GOOGLE') {
+    if (format === 'google') {
       if (json?.usageMetadata) {
-        const u = readUsage(providerType, json);
+        const u = readUsageByFormat(format, json);
         tokens.in = u.tokensIn;
         tokens.out = u.tokensOut;
         tokens.cached = u.cachedTokens;
@@ -78,7 +112,7 @@ export function createUsageStream(
       return;
     }
     if (json?.usage) {
-      const u = readUsage(providerType, json);
+      const u = readUsageByFormat(format, json);
       tokens.in = u.tokensIn;
       tokens.out = u.tokensOut;
       tokens.cached = u.cachedTokens;
