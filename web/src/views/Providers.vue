@@ -46,22 +46,40 @@
                   添加模型
                 </el-button>
               </div>
-              <div v-if="modelsByProvider(row.id).length" class="model-list">
-                <div v-for="m in modelsByProvider(row.id)" :key="m.id" class="model-item">
-                  <code class="model-name font-mono">{{ m.name }}</code>
-                  <el-tag :type="m.status === 'ACTIVE' ? 'success' : 'info'" effect="dark" size="small" disable-transitions>
-                    {{ m.status === 'ACTIVE' ? '启用' : '停用' }}
-                  </el-tag>
-                  <el-switch
-                    :model-value="m.status === 'ACTIVE'"
-                    size="small"
-                    @change="(v: string | number | boolean) => toggleModel(m, v)"
-                  />
-                  <el-tooltip content="删除模型">
-                    <el-button text type="danger" :icon="Delete" size="small" @click="deleteModel(m)" />
-                  </el-tooltip>
-                </div>
-              </div>
+              <el-table v-if="modelsByProvider(row.id).length" :data="modelsByProvider(row.id)" size="small" class="model-table">
+                <el-table-column label="模型名称" min-width="150">
+                  <template #default="{ row: m }">
+                    <code class="model-name font-mono">{{ m.name }}</code>
+                  </template>
+                </el-table-column>
+                <el-table-column label="输入 $/M" width="150">
+                  <template #default="{ row: m }">
+                    <el-input-number v-model="m.inputPrice" :precision="4" :step="0.1" :min="0" size="small" controls-position="right" style="width: 110px" @change="() => saveModelPrice(m)" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="输出 $/M" width="150">
+                  <template #default="{ row: m }">
+                    <el-input-number v-model="m.outputPrice" :precision="4" :step="0.1" :min="0" size="small" controls-position="right" style="width: 110px" @change="() => saveModelPrice(m)" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="缓存 $/M" width="150">
+                  <template #default="{ row: m }">
+                    <el-input-number v-model="m.cachePrice" :precision="4" :step="0.1" :min="0" size="small" controls-position="right" style="width: 110px" @change="() => saveModelPrice(m)" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="状态" width="90">
+                  <template #default="{ row: m }">
+                    <el-switch :model-value="m.status === 'ACTIVE'" size="small" @change="(v: string | number | boolean) => toggleModel(m, v)" />
+                  </template>
+                </el-table-column>
+                <el-table-column width="56" align="right">
+                  <template #default="{ row: m }">
+                    <el-tooltip content="删除模型">
+                      <el-button text type="danger" :icon="Delete" size="small" @click="deleteModel(m)" />
+                    </el-tooltip>
+                  </template>
+                </el-table-column>
+              </el-table>
               <div v-else class="model-empty">该提供商暂无模型，在上方输入名称添加第一个</div>
             </div>
           </template>
@@ -225,6 +243,19 @@ const addModel = async (row: any) => {
   }
 };
 
+const saveModelPrice = async (m: any) => {
+  try {
+    await api.put(`/api/models/${m.id}`, {
+      inputPrice: m.inputPrice ?? 0,
+      outputPrice: m.outputPrice ?? 0,
+      cachePrice: m.cachePrice ?? 0
+    });
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '价格保存失败');
+    await loadProviders();
+  }
+};
+
 const toggleModel = async (m: any, active: string | number | boolean) => {
   try {
     await api.put(`/api/models/${m.id}`, { status: active ? 'ACTIVE' : 'INACTIVE' });
@@ -362,16 +393,7 @@ onMounted(loadProviders);
 .model-panel { padding: 4px 12px 12px; }
 .model-add { display: flex; gap: 10px; max-width: 520px; margin-bottom: 12px; }
 .model-input { flex: 1; }
-.model-list { display: flex; flex-wrap: wrap; gap: 10px; }
-.model-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  background: var(--bg-surface-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
+.model-table { margin-top: 2px; }
 .model-name {
   font-size: 12px;
   font-weight: 600;
