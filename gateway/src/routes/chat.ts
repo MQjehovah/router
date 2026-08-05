@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { proxyRequest } from '../providers/proxy.js';
+import { extractUsage, calculateCost } from '../providers/usage.js';
 
 interface ChatBody {
   model: string;
@@ -17,6 +18,8 @@ interface ResolvedProvider {
   path: string;
   authType: string;
   apiKey: string;
+  providerType: string;
+  pricing: { inputPrice: number; outputPrice: number; cachePrice: number };
 }
 
 async function resolveProvider(req: FastifyRequest, model: string): Promise<{ ok: true; config: ResolvedProvider } | { ok: false; status: number; body: any }> {
@@ -47,6 +50,21 @@ async function resolveProvider(req: FastifyRequest, model: string): Promise<{ ok
       status: 500,
       body: { error: { message: 'Failed to resolve model', type: 'internal_error', code: 'resolve_failed' } }
     };
+  }
+}
+
+async function reportUsage(fastify: FastifyInstance, payload: any) {
+  try {
+    await fetch(`${process.env.ADMIN_API_URL}/internal/usage/report`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Secret': process.env.INTERNAL_SECRET || ''
+      },
+      body: JSON.stringify(payload)
+    });
+  } catch (err) {
+    fastify.log.error(err, 'Failed to report usage');
   }
 }
 
@@ -158,28 +176,18 @@ export async function chatRoutes(fastify: FastifyInstance) {
       
       const latencyMs = Date.now() - startTime;
       
-      setTimeout(async () => {
-        try {
-          await fetch(`${process.env.ADMIN_API_URL}/internal/usage/report`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Internal-Secret': process.env.INTERNAL_SECRET || ''
-            },
-            body: JSON.stringify({
-              apiKey,
-              providerId: config.providerId,
-              model,
-              tokensIn: data.usage?.prompt_tokens || 0,
-              tokensOut: data.usage?.completion_tokens || 0,
-              cost: ((data.usage?.prompt_tokens || 0) * 0.00001 + (data.usage?.completion_tokens || 0) * 0.00003),
-              latencyMs
-            })
-          });
-        } catch (err) {
-          fastify.log.error(err, 'Failed to report usage');
-        }
-      }, 100);
+      const usage = extractUsage(config.providerType, data);
+      const cost = calculateCost(usage, config.pricing);
+      reportUsage(fastify, {
+        apiKey,
+        providerId: config.providerId,
+        model,
+        tokensIn: usage.tokensIn,
+        tokensOut: usage.tokensOut,
+        cachedTokens: usage.cachedTokens,
+        cost,
+        latencyMs
+      });
 
       return data;
     } catch (err) {
