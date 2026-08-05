@@ -148,7 +148,8 @@ export async function internalRoutes(fastify: FastifyInstance) {
     }
 
     const protoRows = await prisma.providerProtocol.findMany({
-      where: { providerId: model.providerId, status: 'ACTIVE' }
+      where: { providerId: model.providerId, status: 'ACTIVE' },
+      orderBy: { id: 'asc' }
     });
 
     let protocols = protoRows.map(r => ({

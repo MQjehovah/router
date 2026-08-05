@@ -9,6 +9,7 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:seed-protocols": "tsx scripts/seed-protocols.ts",
+    "test": "tsx --test test/*.test.ts",
     "typecheck:scripts": "tsc --noEmit --strict --esModuleInterop --skipLibCheck --module NodeNext --moduleResolution NodeNext --target ES2022 scripts/seed-protocols.ts"
   },
   "dependencies": {
