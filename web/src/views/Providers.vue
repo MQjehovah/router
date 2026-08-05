@@ -27,7 +27,7 @@
     </section>
 
     <section class="tech-card table-card">
-      <el-table v-loading="loading" :data="filtered" style="width: 100%">
+      <el-table v-loading="loading" :data="filtered" style="width: 100%" :row-key="rowKey" :expand-row-keys="expandedIds" @expand-change="onExpandChange">
         <template #empty>
           <el-empty description="暂无提供商配置" :image-size="80" />
         </template>
@@ -47,7 +47,7 @@
                   <el-table-column label="路径（空=协议默认）" min-width="220">
                     <template #default="{ row: p }">
                       <el-input
-                        :model-value="p.path || ''"
+                        :model-value="p.path || defaultPath(p.protocol)"
                         :placeholder="defaultPath(p.protocol)"
                         size="small"
                         @change="(v: string) => saveProtocolPath(row, p, v)"
@@ -248,9 +248,10 @@ const addProtocol = async (row: any) => {
 };
 
 const saveProtocolPath = async (row: any, p: any, path: string) => {
+  const normalized = path.trim() === defaultPath(p.protocol) ? '' : path.trim();
   try {
-    await api.put(`/api/providers/${row.id}/protocols/${p.id}`, { path });
-    ElMessage.success('路径已保存');
+    await api.put(`/api/providers/${row.id}/protocols/${p.id}`, { path: normalized });
+    ElMessage.success(normalized ? '路径已保存' : '已恢复默认路径');
     await loadProviders();
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '保存失败');
@@ -289,6 +290,14 @@ const addingId = ref<number | null>(null);
 const newModelName = ref('');
 const keyword = ref('');
 const typeFilter = ref('');
+
+const expandedIds = ref<number[]>([]);
+const rowKey = (row: any) => row.id;
+const onExpandChange = (row: any, expanded: boolean) => {
+  expandedIds.value = expanded
+    ? [...expandedIds.value, row.id]
+    : expandedIds.value.filter(id => id !== row.id);
+};
 
 const createOpen = ref(false);
 const editingId = ref<number | null>(null);
