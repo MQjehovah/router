@@ -11,7 +11,14 @@ export interface AuthData {
 
 export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  let apiKey = '';
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    apiKey = authHeader.substring(7);
+  } else if (req.headers['x-api-key']) {
+    apiKey = String(req.headers['x-api-key']);
+  }
+
+  if (!apiKey) {
     return reply.status(401).send({
       error: {
         message: 'Missing or invalid authorization header',
@@ -20,8 +27,6 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
       }
     });
   }
-
-  const apiKey = authHeader.substring(7);
   const adminUrl = process.env.ADMIN_API_URL || 'http://localhost:3001';
   const secret = process.env.INTERNAL_SECRET || '';
 
