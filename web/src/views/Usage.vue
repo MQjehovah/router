@@ -53,6 +53,9 @@
         <el-table-column label="输出 Token" width="110" align="right" class-name="font-mono">
           <template #default="{ row }">{{ (row.tokensOut || 0).toLocaleString() }}</template>
         </el-table-column>
+        <el-table-column label="缓存 Token" width="110" align="right" class-name="font-mono">
+          <template #default="{ row }">{{ (row.cachedTokens || 0).toLocaleString() }}</template>
+        </el-table-column>
         <el-table-column label="费用" width="110" align="right">
           <template #default="{ row }"><span class="cost font-mono">${{ Number(row.cost).toFixed(6) }}</span></template>
         </el-table-column>
