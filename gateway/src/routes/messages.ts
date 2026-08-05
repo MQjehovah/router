@@ -9,6 +9,8 @@ interface MessagesBody {
   [key: string]: any;
 }
 
+const FORWARD_HEADERS = ['anthropic-beta', 'anthropic-version', 'openai-organization', 'openai-project', 'openai-beta'];
+
 export async function messagesRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: MessagesBody }>('/v1/messages', {
     preHandler: [fastify.authenticate, fastify.rateLimit]
@@ -19,7 +21,11 @@ export async function messagesRoutes(fastify: FastifyInstance) {
     }
 
     const resolved = await resolveProvider(req, model);
-    if (!resolved.ok) return reply.status(resolved.status).send(resolved.body);
+    if (!resolved.ok) {
+      const msg = (resolved.body as any)?.error || 'Failed to resolve model';
+      const type = resolved.status === 404 ? 'not_found_error' : 'api_error';
+      return reply.status(resolved.status).send(anthropicError(type, msg));
+    }
     const config = resolved.config;
 
     const proto = findProtocol(config, 'ANTHROPIC_MESSAGES');
@@ -30,8 +36,14 @@ export async function messagesRoutes(fastify: FastifyInstance) {
     const startTime = Date.now();
     const apiKey = extractApiKey(req);
 
+    const forwarded: Record<string, string> = {};
+    for (const h of FORWARD_HEADERS) {
+      const v = req.headers[h];
+      if (typeof v === 'string') forwarded[h] = v;
+    }
+
     try {
-      const response = await proxyRequest(config.baseUrl, proto.path, config.authType, config.apiKey, req.body, model, stream);
+      const response = await proxyRequest(config.baseUrl, proto.path, config.authType, config.apiKey, req.body, model, stream, forwarded);
 
       if (!response.ok) {
         const error = await response.text();

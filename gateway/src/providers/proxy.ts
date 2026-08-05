@@ -9,19 +9,20 @@ export async function proxyRequest(
   apiKey: string,
   body: any,
   model: string,
-  isStream: boolean = false
+  isStream: boolean = false,
+  forwardHeaders?: Record<string, string>
 ): Promise<import('undici').Response> {
   let url = `${baseUrl.replace(/\/+$/, '')}${path}`;
   if (url.includes('{model}')) {
     url = url.replace('{model}', encodeURIComponent(model));
   }
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...forwardHeaders };
 
   switch (authType) {
     case 'anthropic':
       headers['x-api-key'] = apiKey;
-      headers['anthropic-version'] = '2023-06-01';
+      if (!headers['anthropic-version']) headers['anthropic-version'] = '2023-06-01';
       break;
     case 'google':
       url += url.includes('?') ? '&' : '?';
