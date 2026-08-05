@@ -38,6 +38,7 @@ model Provider {
   createdAt DateTime       @default(now())
 
   models       Model[]
+  protocols    ProviderProtocol[]
   usageRecords UsageRecord[]
 }
 
@@ -149,4 +150,22 @@ enum TransactionType {
   RECHARGE
   CONSUMPTION
   REFUND
+}
+
+enum Protocol {
+  OPENAI_CHAT
+  OPENAI_RESPONSES
+  ANTHROPIC_MESSAGES
+}
+
+model ProviderProtocol {
+  id         Int      @id @default(autoincrement())
+  providerId Int
+  provider   Provider @relation(fields: [providerId], references: [id])
+  protocol   Protocol
+  path       String?
+  status     String   @default("ACTIVE")
+  createdAt  DateTime @default(now())
+
+  @@unique([providerId, protocol])
 }
