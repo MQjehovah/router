@@ -10,33 +10,33 @@ export interface Usage {
   cachedTokens: number;
 }
 
-export function extractUsage(providerType: string, body: any): Usage {
-  switch (providerType) {
-    case 'ANTHROPIC': {
-      const u = body?.usage || {};
-      return {
-        tokensIn: u.input_tokens || 0,
-        tokensOut: u.output_tokens || 0,
-        cachedTokens: u.cache_read_input_tokens || 0
-      };
-    }
-    case 'GOOGLE': {
-      const u = body?.usageMetadata || {};
-      return {
-        tokensIn: u.promptTokenCount || 0,
-        tokensOut: u.candidatesTokenCount || 0,
-        cachedTokens: u.cachedContentTokenCount || 0
-      };
-    }
-    default: {
-      const u = body?.usage || {};
-      return {
-        tokensIn: u.prompt_tokens || 0,
-        tokensOut: u.completion_tokens || 0,
-        cachedTokens: u.prompt_cache_hit_tokens ?? u.prompt_tokens_details?.cached_tokens ?? 0
-      };
-    }
+function readUsage(providerType: string, raw: any): Usage {
+  if (providerType === 'ANTHROPIC') {
+    const u = raw?.usage || {};
+    return {
+      tokensIn: u.input_tokens || 0,
+      tokensOut: u.output_tokens || 0,
+      cachedTokens: u.cache_read_input_tokens || 0
+    };
   }
+  if (providerType === 'GOOGLE') {
+    const u = raw?.usageMetadata || {};
+    return {
+      tokensIn: u.promptTokenCount || 0,
+      tokensOut: u.candidatesTokenCount || 0,
+      cachedTokens: u.cachedContentTokenCount || 0
+    };
+  }
+  const u = raw?.usage || {};
+  return {
+    tokensIn: u.prompt_tokens || 0,
+    tokensOut: u.completion_tokens || 0,
+    cachedTokens: u.prompt_cache_hit_tokens ?? u.prompt_tokens_details?.cached_tokens ?? 0
+  };
+}
+
+export function extractUsage(providerType: string, body: any): Usage {
+  return readUsage(providerType, body);
 }
 
 export function calculateCost(usage: Usage, pricing: Pricing): number {
@@ -69,19 +69,19 @@ export function createUsageStream(
       return;
     }
     if (providerType === 'GOOGLE') {
-      const u = json?.usageMetadata;
-      if (u) {
-        tokens.in = u.promptTokenCount || 0;
-        tokens.out = u.candidatesTokenCount || 0;
-        tokens.cached = u.cachedContentTokenCount || 0;
+      if (json?.usageMetadata) {
+        const u = readUsage(providerType, json);
+        tokens.in = u.tokensIn;
+        tokens.out = u.tokensOut;
+        tokens.cached = u.cachedTokens;
       }
       return;
     }
-    const u = json?.usage;
-    if (u) {
-      tokens.in = u.prompt_tokens || 0;
-      tokens.out = u.completion_tokens || 0;
-      tokens.cached = u.prompt_cache_hit_tokens ?? u.prompt_tokens_details?.cached_tokens ?? 0;
+    if (json?.usage) {
+      const u = readUsage(providerType, json);
+      tokens.in = u.tokensIn;
+      tokens.out = u.tokensOut;
+      tokens.cached = u.cachedTokens;
     }
   };
 

@@ -64,3 +64,48 @@ test('createUsageStream: preserves bytes and extracts usage across chunk boundar
   assert.equal(text, sse[0] + sse[1]);
   assert.deepEqual(reported, { tokensIn: 10, tokensOut: 5, cachedTokens: 7 });
 });
+
+async function collectStream(providerType: string, events: string[]) {
+  let reported: any = null;
+  const input = new ReadableStream<Uint8Array>({
+    start(c) {
+      const enc = new TextEncoder();
+      for (const e of events) c.enqueue(enc.encode(e));
+      c.close();
+    }
+  });
+  const out = input.pipeThrough(createUsageStream(providerType, async (u) => { reported = u; }));
+  const reader = out.getReader();
+  while (true) {
+    const { done } = await reader.read();
+    if (done) break;
+  }
+  return reported;
+}
+
+test('createUsageStream: Anthropic message_start + message_delta', async () => {
+  const reported = await collectStream('ANTHROPIC', [
+    'data: {"type":"message_start","message":{"usage":{"input_tokens":120,"output_tokens":0,"cache_read_input_tokens":80}}}\n\n',
+    'data: {"type":"content_block_delta","delta":{"text":"hi"}}\n\n',
+    'data: {"type":"message_delta","usage":{"output_tokens":60}}\n\n',
+    'data: [DONE]\n\n'
+  ]);
+  assert.deepEqual(reported, { tokensIn: 120, tokensOut: 60, cachedTokens: 80 });
+});
+
+test('createUsageStream: Google usageMetadata in final chunk only', async () => {
+  const reported = await collectStream('GOOGLE', [
+    'data: {"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}\n\n',
+    'data: {"usageMetadata":{"promptTokenCount":200,"candidatesTokenCount":90,"cachedContentTokenCount":150}}\n\n'
+  ]);
+  assert.deepEqual(reported, { tokensIn: 200, tokensOut: 90, cachedTokens: 150 });
+});
+
+test('createUsageStream: OpenAI final chunk with usage; [DONE] and comment lines skipped; no trailing newline', async () => {
+  const reported = await collectStream('OPENAI', [
+    'data: {"choices":[{"delta":{"content":"a"}}]}\n\n',
+    ': ping comment\n\n',
+    'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":30,"completion_tokens":12,"prompt_tokens_details":{"cached_tokens":9}}}',
+  ]);
+  assert.deepEqual(reported, { tokensIn: 30, tokensOut: 12, cachedTokens: 9 });
+});
