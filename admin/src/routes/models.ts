@@ -76,9 +76,9 @@ export async function modelRoutes(fastify: FastifyInstance) {
     return model;
   });
 
-  fastify.delete('/api/models/:id', {
+  fastify.delete<{ Params: { id: string } }>('/api/models/:id', {
     preHandler: [fastify.authenticate]
-  }, async (req: FastifyRequest, reply: FastifyReply) => {
+  }, async (req, reply) => {
     if (req.user.role !== 'ADMIN') {
       return reply.status(403).send({ error: 'Forbidden' });
     }

@@ -81,9 +81,9 @@ export async function userRoutes(fastify: FastifyInstance) {
     return user;
   });
 
-  fastify.delete('/api/users/:id', {
+  fastify.delete<{ Params: { id: string } }>('/api/users/:id', {
     preHandler: [fastify.authenticate]
-  }, async (req: FastifyRequest, reply: FastifyReply) => {
+  }, async (req, reply) => {
     if (req.user.role !== 'ADMIN') {
       return reply.status(403).send({ error: 'Forbidden' });
     }

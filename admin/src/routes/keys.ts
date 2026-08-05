@@ -129,9 +129,38 @@ export async function keyRoutes(fastify: FastifyInstance) {
     return updated;
   });
 
-  fastify.delete('/api/keys/:id', {
+  fastify.post<{ Params: { id: string } }>('/api/keys/:id/regenerate', {
     preHandler: [fastify.authenticate]
-  }, async (req: FastifyRequest, reply: FastifyReply) => {
+  }, async (req, reply) => {
+    const keyId = parseInt(req.params.id);
+    const key = await prisma.apiKey.findUnique({ where: { id: keyId } });
+
+    if (!key) {
+      return reply.status(404).send({ error: 'Key not found' });
+    }
+
+    if (req.user.role !== 'ADMIN' && key.userId !== req.user.id) {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+
+    const rawKey = generateApiKey();
+    await prisma.apiKey.update({
+      where: { id: keyId },
+      data: { keyHash: hashKey(rawKey) }
+    });
+
+    return {
+      id: key.id,
+      key: rawKey,
+      name: key.name,
+      createdAt: key.createdAt.toISOString(),
+      expiresAt: key.expiresAt?.toISOString()
+    };
+  });
+
+  fastify.delete<{ Params: { id: string } }>('/api/keys/:id', {
+    preHandler: [fastify.authenticate]
+  }, async (req, reply) => {
     const keyId = parseInt(req.params.id);
     const key = await prisma.apiKey.findUnique({ where: { id: keyId } });
     

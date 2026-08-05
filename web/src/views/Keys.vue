@@ -62,8 +62,17 @@
             <span class="date font-mono">{{ fmtDate(row.createdAt) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" align="right">
+        <el-table-column label="操作" width="170" align="right">
           <template #default="{ row }">
+            <el-tooltip content="重新生成">
+              <el-button
+                text
+                :loading="regeneratingId === row.id"
+                :icon="RefreshRight"
+                class="row-btn"
+                @click="handleRegenerate(row)"
+              />
+            </el-tooltip>
             <el-tooltip content="编辑">
               <el-button text :icon="Edit" class="row-btn" @click="openEdit(row)" />
             </el-tooltip>
@@ -138,7 +147,7 @@
     </el-dialog>
 
     <!-- one-time reveal -->
-    <el-dialog v-model="revealOpen" title="API Key 创建成功" width="460px">
+    <el-dialog v-model="revealOpen" :title="revealTitle" width="460px">
       <p class="reveal-tip">此密钥仅显示一次，请立即复制保存。关闭后无法再次查看。</p>
       <div class="reveal-box">
         <code class="reveal-key font-mono">{{ revealedKey }}</code>
@@ -154,19 +163,21 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
-import { Plus, Search, Refresh, Edit, Delete, CopyDocument } from '@element-plus/icons-vue';
+import { Plus, Search, Refresh, Edit, Delete, CopyDocument, RefreshRight } from '@element-plus/icons-vue';
 import api from '../api';
 
 const keys = ref<any[]>([]);
 const models = ref<any[]>([]);
 const loading = ref(false);
 const submitting = ref(false);
+const regeneratingId = ref<number | null>(null);
 const keyword = ref('');
 const statusFilter = ref('');
 
 const createOpen = ref(false);
 const editOpen = ref(false);
 const revealOpen = ref(false);
+const revealTitle = ref('API Key 创建成功');
 const revealedKey = ref('');
 
 const createRef = ref<FormInstance>();
@@ -213,6 +224,7 @@ const handleCreate = async () => {
   try {
     const { data } = await api.post('/api/keys', form.value);
     revealedKey.value = data.key;
+    revealTitle.value = 'API Key 创建成功';
     createOpen.value = false;
     revealOpen.value = true;
     loadKeys();
@@ -242,6 +254,26 @@ const handleUpdate = async () => {
     ElMessage.error(e.response?.data?.error || '保存失败');
   } finally {
     submitting.value = false;
+  }
+};
+
+const handleRegenerate = async (row: any) => {
+  try {
+    await ElMessageBox.confirm(
+      `重新生成后，Key「${row.name || row.keyHash}」的旧值将立即失效且无法找回。确定继续吗？`,
+      '重新生成 Key',
+      { type: 'warning', confirmButtonText: '重新生成', cancelButtonText: '取消' }
+    );
+    regeneratingId.value = row.id;
+    const { data } = await api.post(`/api/keys/${row.id}/regenerate`);
+    revealTitle.value = 'Key 已重新生成';
+    revealedKey.value = data.key;
+    revealOpen.value = true;
+    loadKeys();
+  } catch (e: any) {
+    if (e !== 'cancel') ElMessage.error(e.response?.data?.error || '重新生成失败');
+  } finally {
+    regeneratingId.value = null;
   }
 };
 

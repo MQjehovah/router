@@ -175,9 +175,9 @@ export async function providerRoutes(fastify: FastifyInstance) {
     return result;
   });
 
-  fastify.delete('/api/providers/:id', {
+  fastify.delete<{ Params: { id: string } }>('/api/providers/:id', {
     preHandler: [fastify.authenticate]
-  }, async (req: FastifyRequest, reply: FastifyReply) => {
+  }, async (req, reply) => {
     if (req.user.role !== 'ADMIN') {
       return reply.status(403).send({ error: 'Forbidden' });
     }

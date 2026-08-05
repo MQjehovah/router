@@ -3,7 +3,7 @@
     <header class="page-head">
       <div>
         <h2 class="page-title">提供商</h2>
-        <p class="page-sub">配置上游 LLM 服务的接入信息（密钥加密存储）</p>
+        <p class="page-sub">配置上游 LLM 服务的接入信息与可用模型（密钥加密存储）</p>
       </div>
       <el-button type="primary" :icon="Plus" @click="openCreate">添加提供商</el-button>
     </header>
@@ -31,6 +31,41 @@
         <template #empty>
           <el-empty description="暂无提供商配置" :image-size="80" />
         </template>
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <div class="model-panel">
+              <div class="model-add">
+                <el-input
+                  v-model="newModelName"
+                  placeholder="添加可用模型，如 deepseek-chat，回车确认"
+                  clearable
+                  class="model-input"
+                  @keyup.enter="addModel(row)"
+                />
+                <el-button type="primary" :icon="Plus" :loading="addingId === row.id" @click="addModel(row)">
+                  添加模型
+                </el-button>
+              </div>
+              <div v-if="modelsByProvider(row.id).length" class="model-list">
+                <div v-for="m in modelsByProvider(row.id)" :key="m.id" class="model-item">
+                  <code class="model-name font-mono">{{ m.name }}</code>
+                  <el-tag :type="m.status === 'ACTIVE' ? 'success' : 'info'" effect="dark" size="small" disable-transitions>
+                    {{ m.status === 'ACTIVE' ? '启用' : '停用' }}
+                  </el-tag>
+                  <el-switch
+                    :model-value="m.status === 'ACTIVE'"
+                    size="small"
+                    @change="(v: string | number | boolean) => toggleModel(m, v)"
+                  />
+                  <el-tooltip content="删除模型">
+                    <el-button text type="danger" :icon="Delete" size="small" @click="deleteModel(m)" />
+                  </el-tooltip>
+                </div>
+              </div>
+              <div v-else class="model-empty">该提供商暂无模型，在上方输入名称添加第一个</div>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="id" label="ID" width="64" class-name="font-mono" />
         <el-table-column label="提供商" min-width="180">
           <template #default="{ row }">
@@ -128,9 +163,12 @@ import { Plus, Search, Refresh, Edit, Delete, Aim } from '@element-plus/icons-vu
 import api from '../api';
 
 const providers = ref<any[]>([]);
+const models = ref<any[]>([]);
 const loading = ref(false);
 const submitting = ref(false);
 const testingId = ref<number | null>(null);
+const addingId = ref<number | null>(null);
+const newModelName = ref('');
 const keyword = ref('');
 const typeFilter = ref('');
 
@@ -150,18 +188,64 @@ const filtered = computed(() => providers.value.filter(p =>
   (!keyword.value || p.name?.includes(keyword.value) || p.type?.includes(keyword.value))
 ));
 
+const modelsByProvider = (providerId: number) => models.value.filter(m => m.providerId === providerId);
+
 const typeLabel = (t: string) => ({ OPENAI: 'OpenAI', ANTHROPIC: 'Anthropic', GOOGLE: 'Google', HUGGINGFACE: 'Hugging Face', DEEPSEEK: 'DeepSeek' })[t] || t;
 const pAbbr = (t: string) => ({ OPENAI: 'OA', ANTHROPIC: 'AN', GOOGLE: 'GO', HUGGINGFACE: 'HF', DEEPSEEK: 'DS' })[t] || '?';
 
 const loadProviders = async () => {
   loading.value = true;
   try {
-    const { data } = await api.get('/api/providers');
-    providers.value = data;
+    const [pRes, mRes] = await Promise.all([api.get('/api/providers'), api.get('/api/models')]);
+    providers.value = pRes.data;
+    models.value = mRes.data;
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '加载失败');
   } finally {
     loading.value = false;
+  }
+};
+
+const addModel = async (row: any) => {
+  const name = newModelName.value.trim();
+  if (!name) {
+    ElMessage.warning('请输入模型名称');
+    return;
+  }
+  addingId.value = row.id;
+  try {
+    await api.post('/api/models', { name, providerId: row.id });
+    ElMessage.success('模型已添加');
+    newModelName.value = '';
+    await loadProviders();
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '添加失败');
+  } finally {
+    addingId.value = null;
+  }
+};
+
+const toggleModel = async (m: any, active: string | number | boolean) => {
+  try {
+    await api.put(`/api/models/${m.id}`, { status: active ? 'ACTIVE' : 'INACTIVE' });
+    ElMessage.success(active ? '已启用' : '已停用');
+    await loadProviders();
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '操作失败');
+    await loadProviders();
+  }
+};
+
+const deleteModel = async (m: any) => {
+  try {
+    await ElMessageBox.confirm(`确定删除模型「${m.name}」吗？关联的 Key 授权会被清理。`, '删除确认', {
+      type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消'
+    });
+    await api.delete(`/api/models/${m.id}`);
+    ElMessage.success('已删除');
+    await loadProviders();
+  } catch (e: any) {
+    if (e !== 'cancel') ElMessage.error(e.response?.data?.error || '删除失败');
   }
 };
 
@@ -274,4 +358,32 @@ onMounted(loadProviders);
 .url, .key { font-size: 12px; color: var(--text-2); background: var(--bg-deep); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); }
 .row-btn { padding: 6px; }
 .field-hint { font-size: 12px; color: var(--text-3); margin-top: 4px; line-height: 1.4; }
+
+.model-panel { padding: 4px 12px 12px; }
+.model-add { display: flex; gap: 10px; max-width: 520px; margin-bottom: 12px; }
+.model-input { flex: 1; }
+.model-list { display: flex; flex-wrap: wrap; gap: 10px; }
+.model-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.model-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a5f3fc;
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+.model-empty {
+  font-size: 12px;
+  color: var(--text-3);
+  padding: 6px 2px;
+}
 </style>

@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -36,7 +36,10 @@ interface ReportBody {
   latencyMs: number;
 }
 
-async function verifyKey(apiKey: string) {
+async function verifyKey(apiKey: string): Promise<
+  | { valid: true; keyId: number; userId: number; rateLimit: number; dailyQuota: number; monthlyQuota: number; userBalance: Prisma.Decimal }
+  | { valid: false; reason: string }
+> {
   const keys = await prisma.apiKey.findMany({
     where: { status: 'ACTIVE' },
     include: { user: true }
@@ -189,7 +192,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
     return { success: true };
   });
 
-  fastify.get('/internal/usage/daily/:keyId', async (req, reply) => {
+  fastify.get<{ Params: { keyId: string } }>('/internal/usage/daily/:keyId', async (req, reply) => {
     const secret = req.headers['x-internal-secret'];
     if (secret !== process.env.INTERNAL_SECRET) {
       return reply.status(403).send({ error: 'Invalid internal secret' });
@@ -218,7 +221,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
     };
   });
 
-  fastify.get('/internal/usage/monthly/:keyId', async (req, reply) => {
+  fastify.get<{ Params: { keyId: string } }>('/internal/usage/monthly/:keyId', async (req, reply) => {
     const secret = req.headers['x-internal-secret'];
     if (secret !== process.env.INTERNAL_SECRET) {
       return reply.status(403).send({ error: 'Invalid internal secret' });

@@ -57,9 +57,9 @@ export async function usageRoutes(fastify: FastifyInstance) {
     };
   });
 
-  fastify.get('/api/usage/records', {
+  fastify.get<{ Querystring: { limit?: string; offset?: string } }>('/api/usage/records', {
     preHandler: [fastify.authenticate]
-  }, async (req: FastifyRequest, reply: FastifyReply) => {
+  }, async (req, reply) => {
     const where = req.user.role === 'ADMIN' ? {} : { apiKey: { userId: req.user.id } };
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = parseInt(req.query.offset as string) || 0;
@@ -80,9 +80,9 @@ export async function usageRoutes(fastify: FastifyInstance) {
     return { records, total };
   });
 
-  fastify.get('/api/usage/trend', {
+  fastify.get<{ Querystring: { days?: string } }>('/api/usage/trend', {
     preHandler: [fastify.authenticate]
-  }, async (req: FastifyRequest, reply: FastifyReply) => {
+  }, async (req, reply) => {
     const days = Math.min(Math.max(parseInt(req.query.days as string) || 7, 1), 30);
     const where = req.user.role === 'ADMIN' ? {} : { apiKey: { userId: req.user.id } };
 
