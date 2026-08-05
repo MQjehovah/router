@@ -8,14 +8,14 @@ datasource db {
 }
 
 model User {
-  id           Int       @id @default(autoincrement())
-  email        String    @unique
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
   passwordHash String
   name         String
-  role         Role      @default(USER)
-  balance      Decimal   @default(0)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  role         Role     @default(USER)
+  balance      Decimal  @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   apiKeys      ApiKey[]
   bills        Bill[]
@@ -55,15 +55,16 @@ enum ProviderStatus {
 }
 
 model Model {
-  id         Int       @id @default(autoincrement())
-  name       String    @unique
-  providerId Int
-  provider   Provider  @relation(fields: [providerId], references: [id])
-  status     String    @default("ACTIVE")
-  inputPrice  Decimal @default(0)
-  outputPrice Decimal @default(0)
-  cachePrice  Decimal @default(0)
-  createdAt  DateTime  @default(now())
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  providerId  Int
+  provider    Provider @relation(fields: [providerId], references: [id])
+  status      String   @default("ACTIVE")
+  /// 计价单位：$/百万 token（inputPrice 输入、outputPrice 输出、cachePrice 缓存命中输入）
+  inputPrice  Decimal  @default(0)
+  outputPrice Decimal  @default(0)
+  cachePrice  Decimal  @default(0)
+  createdAt   DateTime @default(now())
 
   allowedKeys ApiKeyAllowedModel[]
 }
@@ -81,7 +82,7 @@ model ApiKey {
   expiresAt    DateTime?
   createdAt    DateTime     @default(now())
 
-  usageRecords UsageRecord[]
+  usageRecords  UsageRecord[]
   allowedModels ApiKeyAllowedModel[]
 }
 
@@ -101,18 +102,18 @@ model ApiKeyAllowedModel {
 }
 
 model UsageRecord {
-  id        Int       @id @default(autoincrement())
-  apiKeyId  Int
-  apiKey    ApiKey    @relation(fields: [apiKeyId], references: [id])
-  providerId Int
-  provider  Provider  @relation(fields: [providerId], references: [id])
-  model     String
-  tokensIn  Int       @default(0)
-  tokensOut Int       @default(0)
-  cachedTokens Int     @default(0)
-  cost      Decimal   @default(0)
-  latencyMs Int       @default(0)
-  createdAt DateTime  @default(now())
+  id           Int      @id @default(autoincrement())
+  apiKeyId     Int
+  apiKey       ApiKey   @relation(fields: [apiKeyId], references: [id])
+  providerId   Int
+  provider     Provider @relation(fields: [providerId], references: [id])
+  model        String
+  tokensIn     Int      @default(0)
+  tokensOut    Int      @default(0)
+  cachedTokens Int      @default(0)
+  cost         Decimal  @default(0)
+  latencyMs    Int      @default(0)
+  createdAt    DateTime @default(now())
 }
 
 model Bill {
@@ -121,7 +122,7 @@ model Bill {
   user        User       @relation(fields: [userId], references: [id])
   periodStart DateTime
   periodEnd   DateTime
-  totalCost   Decimal   
+  totalCost   Decimal
   status      BillStatus @default(PENDING)
   paidAt      DateTime?
   createdAt   DateTime   @default(now())
@@ -138,8 +139,8 @@ model Transaction {
   userId      Int
   user        User            @relation(fields: [userId], references: [id])
   type        TransactionType
-  amount      Decimal        
-  balance     Decimal        
+  amount      Decimal
+  balance     Decimal
   description String?
   createdAt   DateTime        @default(now())
 }
