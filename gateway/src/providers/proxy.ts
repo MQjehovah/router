@@ -10,7 +10,7 @@ export async function proxyRequest(
   body: any,
   model: string,
   isStream: boolean = false
-): Promise<Response> {
+): Promise<import('undici').Response> {
   let url = `${baseUrl.replace(/\/+$/, '')}${path}`;
   if (url.includes('{model}')) {
     url = url.replace('{model}', encodeURIComponent(model));
