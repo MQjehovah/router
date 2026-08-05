@@ -55,7 +55,8 @@ async function resolveProvider(req: FastifyRequest, model: string): Promise<{ ok
 
 async function reportUsage(fastify: FastifyInstance, payload: any) {
   try {
-    await fetch(`${process.env.ADMIN_API_URL}/internal/usage/report`, {
+    const adminUrl = process.env.ADMIN_API_URL || 'http://localhost:3001';
+    const response = await fetch(`${adminUrl}/internal/usage/report`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -63,6 +64,9 @@ async function reportUsage(fastify: FastifyInstance, payload: any) {
       },
       body: JSON.stringify(payload)
     });
+    if (!response.ok) {
+      fastify.log.warn({ status: response.status }, 'Admin usage report rejected');
+    }
   } catch (err) {
     fastify.log.error(err, 'Failed to report usage');
   }
@@ -177,7 +181,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
       const latencyMs = Date.now() - startTime;
       
       const usage = extractUsage(config.providerType, data);
-      const cost = calculateCost(usage, config.pricing);
+      const cost = calculateCost(usage, config.pricing || { inputPrice: 0, outputPrice: 0, cachePrice: 0 });
       reportUsage(fastify, {
         apiKey,
         providerId: config.providerId,
