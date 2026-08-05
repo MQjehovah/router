@@ -17,10 +17,19 @@ export interface ResolvedProvider {
   pricing: { inputPrice: number; outputPrice: number; cachePrice: number };
 }
 
+export function extractApiKey(req: FastifyRequest): string {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+  const xk = req.headers['x-api-key'];
+  return typeof xk === 'string' ? xk : '';
+}
+
 export async function resolveProvider(req: FastifyRequest, model: string): Promise<{ ok: true; config: ResolvedProvider } | { ok: false; status: number; body: any }> {
   const adminUrl = process.env.ADMIN_API_URL || 'http://localhost:3001';
   const secret = process.env.INTERNAL_SECRET || '';
-  const apiKey = req.headers.authorization?.substring(7) || String(req.headers['x-api-key'] || '');
+  const apiKey = extractApiKey(req);
 
   try {
     const response = await fetch(`${adminUrl}/internal/models/resolve`, {

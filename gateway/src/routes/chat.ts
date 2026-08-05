@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { proxyRequest } from '../providers/proxy.js';
 import { extractUsage, calculateCost, createUsageStream, formatFor } from '../providers/usage.js';
-import { resolveProvider, reportUsage } from './helpers.js';
+import { resolveProvider, reportUsage, extractApiKey } from './helpers.js';
 
 interface ChatBody {
   model: string;
@@ -79,7 +79,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const apiKey = req.headers.authorization?.substring(7);
+      const apiKey = extractApiKey(req);
 
       if (stream) {
         reply.header('Content-Type', 'text/event-stream');
@@ -147,7 +147,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
   }, async (req, reply) => {
     const adminUrl = process.env.ADMIN_API_URL || 'http://localhost:3001';
     const secret = process.env.INTERNAL_SECRET || '';
-    const apiKey = req.headers.authorization?.substring(7);
+    const apiKey = extractApiKey(req);
 
     try {
       const response = await fetch(`${adminUrl}/internal/keys/models`, {

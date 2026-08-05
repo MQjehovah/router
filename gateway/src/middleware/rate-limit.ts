@@ -16,7 +16,7 @@ function cleanExpiredEntries() {
   }
 }
 
-setInterval(cleanExpiredEntries, 60000);
+setInterval(cleanExpiredEntries, 60000).unref();
 
 export async function rateLimit(req: FastifyRequest, reply: FastifyReply) {
   const authData = (req as any).authData;
