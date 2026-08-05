@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
+import { PROTOCOLS } from '../protocols.js';
 
 const prisma = new PrismaClient();
 
@@ -104,7 +105,6 @@ export async function providerRoutes(fastify: FastifyInstance) {
 
     return providers.map(p => ({
       ...p,
-      protocols: p.protocols,
       apiKey: p.apiKey.substring(0, 8) + '****',
       createdAt: p.createdAt.toISOString()
     }));
@@ -118,21 +118,25 @@ export async function providerRoutes(fastify: FastifyInstance) {
     }
 
     const encryptedKey = encrypt(req.body.apiKey, process.env.ENCRYPTION_KEY || 'default-key');
-    
-    const provider = await prisma.provider.create({
-      data: {
-        name: req.body.name,
-        type: req.body.type,
-        baseUrl: req.body.baseUrl,
-        path: req.body.path || '/chat/completions',
-        apiKey: encryptedKey
-      }
-    });
 
-    await prisma.providerProtocol.upsert({
-      where: { providerId_protocol: { providerId: provider.id, protocol: 'OPENAI_CHAT' } },
-      create: { providerId: provider.id, protocol: 'OPENAI_CHAT', path: req.body.path || null },
-      update: {}
+    const provider = await prisma.$transaction(async (tx) => {
+      const p = await tx.provider.create({
+        data: {
+          name: req.body.name,
+          type: req.body.type,
+          baseUrl: req.body.baseUrl,
+          path: req.body.path || '/chat/completions',
+          apiKey: encryptedKey
+        }
+      });
+
+      await tx.providerProtocol.upsert({
+        where: { providerId_protocol: { providerId: p.id, protocol: 'OPENAI_CHAT' } },
+        create: { providerId: p.id, protocol: 'OPENAI_CHAT', path: req.body.path || null },
+        update: {}
+      });
+
+      return p;
     });
 
     return { ...provider, apiKey: req.body.apiKey };
@@ -160,6 +164,13 @@ export async function providerRoutes(fastify: FastifyInstance) {
       where: { id: providerId },
       data
     });
+
+    if (req.body.path) {
+      await prisma.providerProtocol.updateMany({
+        where: { providerId, protocol: 'OPENAI_CHAT' },
+        data: { path: req.body.path }
+      });
+    }
 
     return { ...provider, apiKey: '****' };
   });
@@ -199,8 +210,10 @@ export async function providerRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate]
   }, async (req, reply) => {
     if (req.user.role !== 'ADMIN') return reply.status(403).send({ error: 'Forbidden' });
+    const providerId = parseInt(req.params.id);
+    if (Number.isNaN(providerId)) return reply.status(400).send({ error: 'Invalid provider id' });
     const rows = await prisma.providerProtocol.findMany({
-      where: { providerId: parseInt(req.params.id) },
+      where: { providerId },
       orderBy: { id: 'asc' }
     });
     return rows;
@@ -211,8 +224,12 @@ export async function providerRoutes(fastify: FastifyInstance) {
   }, async (req, reply) => {
     if (req.user.role !== 'ADMIN') return reply.status(403).send({ error: 'Forbidden' });
     const providerId = parseInt(req.params.id);
+    if (Number.isNaN(providerId)) return reply.status(400).send({ error: 'Invalid provider id' });
     const { protocol, path } = req.body;
     if (!protocol) return reply.status(400).send({ error: 'protocol is required' });
+    if (!PROTOCOLS.includes(protocol as any)) return reply.status(400).send({ error: 'Invalid protocol' });
+    const exists = await prisma.provider.findUnique({ where: { id: providerId }, select: { id: true } });
+    if (!exists) return reply.status(404).send({ error: 'Provider not found' });
     const row = await prisma.providerProtocol.upsert({
       where: { providerId_protocol: { providerId, protocol: protocol as any } },
       create: { providerId, protocol: protocol as any, path: path || null },
@@ -225,13 +242,19 @@ export async function providerRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate]
   }, async (req, reply) => {
     if (req.user.role !== 'ADMIN') return reply.status(403).send({ error: 'Forbidden' });
+    const protocolId = parseInt(req.params.protocolId);
+    const providerId = parseInt(req.params.id);
+    if (Number.isNaN(protocolId) || Number.isNaN(providerId)) return reply.status(400).send({ error: 'Invalid id' });
+    if (req.body.status && !['ACTIVE', 'INACTIVE'].includes(req.body.status)) return reply.status(400).send({ error: 'Invalid status' });
     const data: any = {};
     if (req.body.path !== undefined) data.path = req.body.path || null;
     if (req.body.status) data.status = req.body.status;
-    const row = await prisma.providerProtocol.update({
-      where: { id: parseInt(req.params.protocolId) },
+    const result = await prisma.providerProtocol.updateMany({
+      where: { id: protocolId, providerId },
       data
     });
+    if (result.count === 0) return reply.status(404).send({ error: 'Protocol not found' });
+    const row = await prisma.providerProtocol.findUnique({ where: { id: protocolId } });
     return row;
   });
 
@@ -239,7 +262,13 @@ export async function providerRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate]
   }, async (req, reply) => {
     if (req.user.role !== 'ADMIN') return reply.status(403).send({ error: 'Forbidden' });
-    await prisma.providerProtocol.delete({ where: { id: parseInt(req.params.protocolId) } });
+    const protocolId = parseInt(req.params.protocolId);
+    const providerId = parseInt(req.params.id);
+    if (Number.isNaN(protocolId) || Number.isNaN(providerId)) return reply.status(400).send({ error: 'Invalid id' });
+    const result = await prisma.providerProtocol.deleteMany({
+      where: { id: protocolId, providerId }
+    });
+    if (result.count === 0) return reply.status(404).send({ error: 'Protocol not found' });
     return { success: true };
   });
 }
