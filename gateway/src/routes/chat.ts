@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { proxyRequest } from '../providers/proxy.js';
-import { extractUsage, calculateCost, createUsageStream } from '../providers/usage.js';
+import { extractUsage, calculateCost, createUsageStream, formatFor } from '../providers/usage.js';
 
 interface ChatBody {
   model: string;
@@ -155,7 +155,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
         const latencyMs = Date.now() - startTime;
         // 流结束时上报用量；fire-and-forget，避免 admin 上报阻塞响应结束。
         // 中断/出错的流不会触发 flush，故不产生记录（避免误导性的 0 token 记录）。
-        const usageStream = createUsageStream(config.providerType, (usage) => {
+        const usageStream = createUsageStream(formatFor(config.providerType), (usage) => {
           const cost = calculateCost(usage, config.pricing || { inputPrice: 0, outputPrice: 0, cachePrice: 0 });
           reportUsage(fastify, {
             apiKey,

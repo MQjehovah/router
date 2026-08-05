@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractUsage, extractUsageByFormat, calculateCost, createUsageStream } from '../src/providers/usage.js';
+import { extractUsage, extractUsageByFormat, calculateCost, createUsageStream, formatFor, type UsageFormat } from '../src/providers/usage.js';
 
 test('extractUsage: OpenAI cached via prompt_tokens_details', () => {
   const u = extractUsage('OPENAI', { usage: { prompt_tokens: 100, completion_tokens: 50, prompt_tokens_details: { cached_tokens: 30 } } });
@@ -65,7 +65,10 @@ test('createUsageStream: preserves bytes and extracts usage across chunk boundar
   assert.deepEqual(reported, { tokensIn: 10, tokensOut: 5, cachedTokens: 7 });
 });
 
-async function collectStream(providerType: string, events: string[]) {
+async function collectStream(providerTypeOrFormat: string, events: string[]) {
+  const format: UsageFormat = (['chat', 'responses', 'anthropic', 'google'] as const).includes(providerTypeOrFormat as any)
+    ? providerTypeOrFormat as UsageFormat
+    : formatFor(providerTypeOrFormat);
   let reported: any = null;
   const input = new ReadableStream<Uint8Array>({
     start(c) {
@@ -74,7 +77,7 @@ async function collectStream(providerType: string, events: string[]) {
       c.close();
     }
   });
-  const out = input.pipeThrough(createUsageStream(providerType, async (u) => { reported = u; }));
+  const out = input.pipeThrough(createUsageStream(format, async (u) => { reported = u; }));
   const reader = out.getReader();
   while (true) {
     const { done } = await reader.read();
@@ -129,4 +132,34 @@ test('createUsageStream: responses response.completed usage', async () => {
     'data: [DONE]\n\n'
   ]);
   assert.deepEqual(reported, { tokensIn: 200, tokensOut: 90, cachedTokens: 150 });
+});
+
+test('createUsageStream: responses usage across chunk boundaries', async () => {
+  const sse = [
+    'data: {"type":"response.output_text.delta","delta":"a"}\n\n',
+    'data: {"type":"response.completed","response":{"usage":{"input_tokens":50,"output_tokens":20,"input_tokens_details":{"cached_tokens":10}}}}\n\n'
+  ];
+  const input = new ReadableStream<Uint8Array>({
+    start(c) {
+      const enc = new TextEncoder();
+      const second = enc.encode(sse[1]);
+      c.enqueue(enc.encode(sse[0]));
+      c.enqueue(second.slice(0, 25));
+      c.enqueue(second.slice(25));
+      c.close();
+    }
+  });
+  let reported: any = null;
+  const out = input.pipeThrough(createUsageStream('responses', async (u) => { reported = u; }));
+  const reader = out.getReader();
+  while (true) { const { done } = await reader.read(); if (done) break; }
+  assert.deepEqual(reported, { tokensIn: 50, tokensOut: 20, cachedTokens: 10 });
+});
+
+test('createUsageStream: responses stream with no usage event reports zeros', async () => {
+  const reported = await collectStream('responses', [
+    'data: {"type":"response.output_text.delta","delta":"hi"}\n\n',
+    'data: [DONE]\n\n'
+  ]);
+  assert.deepEqual(reported, { tokensIn: 0, tokensOut: 0, cachedTokens: 0 });
 });

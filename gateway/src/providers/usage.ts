@@ -12,7 +12,7 @@ export interface Usage {
 
 export type UsageFormat = 'chat' | 'responses' | 'anthropic' | 'google';
 
-function formatFor(providerType: string): UsageFormat {
+export function formatFor(providerType: string): UsageFormat {
   switch (providerType) {
     case 'ANTHROPIC': return 'anthropic';
     case 'GOOGLE': return 'google';
@@ -72,12 +72,9 @@ export function calculateCost(usage: Usage, pricing: Pricing): number {
 }
 
 export function createUsageStream(
-  formatOrType: UsageFormat | string,
+  format: UsageFormat,
   onDone: (usage: Usage) => Promise<void> | void
 ): TransformStream<Uint8Array, Uint8Array> {
-  const format: UsageFormat = (['chat', 'responses', 'anthropic', 'google'] as const).includes(formatOrType as any)
-    ? formatOrType as UsageFormat
-    : formatFor(formatOrType);
   const tokens = { in: 0, out: 0, cached: 0 };
   const decoder = new TextDecoder();
   let buffer = '';
