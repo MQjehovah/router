@@ -202,6 +202,7 @@ export async function providerRoutes(fastify: FastifyInstance) {
     }
 
     const providerId = parseInt(req.params.id);
+    await prisma.providerProtocol.deleteMany({ where: { providerId } });
     await prisma.provider.delete({ where: { id: providerId } });
     return { success: true };
   });
