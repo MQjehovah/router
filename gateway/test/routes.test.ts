@@ -40,7 +40,18 @@ before(async () => {
   process.env.RESOLVE_CACHE_TTL = '0.5';
 
   admin = Fastify();
-  admin.post('/internal/keys/verify', async (_req, reply) => reply.send({ keyId: 1, userId: 1, rateLimit: 60, dailyQuota: 100000, monthlyQuota: 3000000, userBalance: 100 }));
+  admin.post('/internal/keys/verify', async (req, reply) => {
+    const { apiKey } = req.body as any;
+    if (apiKey === 'quota-daily-key') return { keyId: 2, userId: 1, rateLimit: 60, dailyQuota: 100, monthlyQuota: 100000, userBalance: 100, todayTokens: 150, monthTokens: 200 };
+    if (apiKey === 'quota-monthly-key') return { keyId: 3, userId: 1, rateLimit: 60, dailyQuota: 100000, monthlyQuota: 100, userBalance: 100, todayTokens: 50, monthTokens: 500 };
+    if (apiKey === 'balance-key') return { keyId: 4, userId: 1, rateLimit: 60, dailyQuota: 100000, monthlyQuota: 3000000, userBalance: 0, todayTokens: 0, monthTokens: 0 };
+    return { keyId: 1, userId: 1, rateLimit: 60, dailyQuota: 100000, monthlyQuota: 3000000, userBalance: 100, todayTokens: 0, monthTokens: 0 };
+  });
+  admin.post('/internal/keys/models', async (req, reply) => {
+    const { apiKey } = req.body as any;
+    if (apiKey === 'granted-key') return { models: ['deepseek-chat'] };
+    return { models: ['deepseek-chat', 'chat-only'] };
+  });
   admin.post('/internal/models/resolve', async (req, reply) => {
     resolveCalls++;
     const { model } = req.body as any;
@@ -190,6 +201,58 @@ test('POST /v1/messages: protocol not supported', async () => {
   const body = res.json();
   assert.equal(body.type, 'error');
   assert.ok(body.error.message.includes('anthropic messages protocol'));
+});
+
+test('POST /v1/responses: daily quota exceeded returns 429', async () => {
+  const res = await gateway.inject({
+    method: 'POST', url: '/v1/responses',
+    headers: { authorization: 'Bearer quota-daily-key' },
+    payload: { model: 'deepseek-chat', input: [] }
+  });
+  assert.equal(res.statusCode, 429);
+  assert.equal(res.json().error.code, 'daily_quota_exceeded');
+});
+
+test('POST /v1/responses: monthly quota exceeded returns 429', async () => {
+  const res = await gateway.inject({
+    method: 'POST', url: '/v1/responses',
+    headers: { authorization: 'Bearer quota-monthly-key' },
+    payload: { model: 'deepseek-chat', input: [] }
+  });
+  assert.equal(res.statusCode, 429);
+  assert.equal(res.json().error.code, 'monthly_quota_exceeded');
+});
+
+test('POST /v1/responses: insufficient balance returns 402', async () => {
+  const res = await gateway.inject({
+    method: 'POST', url: '/v1/responses',
+    headers: { authorization: 'Bearer balance-key' },
+    payload: { model: 'deepseek-chat', input: [] }
+  });
+  assert.equal(res.statusCode, 402);
+  assert.equal(res.json().error.code, 'insufficient_balance');
+});
+
+test('GET /v1/models: returns only granted models for a key with grants', async () => {
+  const res = await gateway.inject({
+    method: 'GET', url: '/v1/models',
+    headers: { authorization: 'Bearer granted-key' }
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  const ids = body.data.map((m: any) => m.id);
+  assert.deepEqual(ids, ['deepseek-chat']);
+});
+
+test('GET /v1/models: returns all active models for a key without grants', async () => {
+  const res = await gateway.inject({
+    method: 'GET', url: '/v1/models',
+    headers: { authorization: 'Bearer test-key' }
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  const ids = body.data.map((m: any) => m.id);
+  assert.deepEqual(ids, ['deepseek-chat', 'chat-only']);
 });
 
 test('POST /v1/responses: model not found maps to openai error', async () => {

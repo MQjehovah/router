@@ -1,5 +1,3 @@
-import type { Prisma } from '@prisma/client';
-
 export type KeyVerifyResult =
   | {
       valid: true;
@@ -8,7 +6,6 @@ export type KeyVerifyResult =
       rateLimit: number;
       dailyQuota: number;
       monthlyQuota: number;
-      userBalance: Prisma.Decimal;
     }
   | { valid: false; reason: string };
 

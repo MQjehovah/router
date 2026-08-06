@@ -47,6 +47,30 @@
       </header>
       <v-chart v-if="statsReady" class="chart chart-lg" :option="barOption" autoresize />
     </section>
+
+    <section class="chart-card tech-card">
+      <header class="chart-head">
+        <h3 class="chart-title">成本 TOP Key</h3>
+        <p class="chart-sub">近 30 天费用最高的 Key</p>
+      </header>
+      <div class="topkeys">
+        <div v-if="(stats.topKeys || []).length" class="tk-table">
+          <div class="tk-row tk-head">
+            <span>#</span><span>Key</span><span class="tk-right">请求</span><span class="tk-right">费用</span>
+          </div>
+          <div v-for="(k, i) in stats.topKeys" :key="k.keyId" class="tk-row">
+            <span class="tk-rank">{{ i + 1 }}</span>
+            <span class="tk-name">
+              <span class="font-mono">{{ k.name }}</span>
+              <span v-if="k.user" class="tk-user">{{ k.user }}</span>
+            </span>
+            <span class="tk-num font-mono">{{ (k.requests || 0).toLocaleString() }}</span>
+            <span class="tk-cost font-mono">${{ Number(k.cost || 0).toFixed(4) }}</span>
+          </div>
+        </div>
+        <div v-else class="chart-empty">近 30 天暂无数据</div>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -369,5 +393,63 @@ onMounted(async () => {
 
 .chart-model {
   margin-top: 18px;
+}
+
+.topkeys {
+  padding: 4px 2px 0;
+}
+.tk-row {
+  display: grid;
+  grid-template-columns: 34px 1fr 100px 120px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.tk-row:last-child {
+  border-bottom: none;
+}
+.tk-head {
+  color: var(--text-3);
+  font-size: 12px;
+  padding-bottom: 6px;
+}
+.tk-rank {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.tk-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--text-1);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tk-user {
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 400;
+}
+.tk-right {
+  text-align: right;
+}
+.tk-num {
+  text-align: right;
+  color: var(--text-2);
+}
+.tk-cost {
+  text-align: right;
+  color: #6ee7b7;
+  font-weight: 600;
+}
+.chart-empty {
+  color: var(--text-3);
+  font-size: 13px;
+  padding: 28px;
+  text-align: center;
 }
 </style>

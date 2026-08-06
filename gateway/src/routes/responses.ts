@@ -13,7 +13,7 @@ const FORWARD_HEADERS = ['anthropic-beta', 'anthropic-version', 'openai-organiza
 
 export async function responsesRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: ResponsesBody }>('/v1/responses', {
-    preHandler: [fastify.authenticate, fastify.rateLimit]
+    preHandler: [fastify.authenticate, fastify.rateLimit, fastify.quotaCheck]
   }, async (req, reply) => {
     const { model, stream } = req.body;
     if (!model) {

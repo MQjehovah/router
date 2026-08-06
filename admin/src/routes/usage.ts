@@ -11,8 +11,11 @@ export async function usageRoutes(fastify: FastifyInstance) {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
 
-    const [totalUsage, todayUsage, topModels] = await Promise.all([
+    const [totalUsage, todayUsage, topModels, topKeyRows] = await Promise.all([
       prisma.usageRecord.aggregate({
         where,
         _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
@@ -27,13 +30,33 @@ export async function usageRoutes(fastify: FastifyInstance) {
         by: ['model'],
         where: {
           ...where,
-          createdAt: { gte: new Date(today.getFullYear(), today.getMonth(), 1) }
+          createdAt: { gte: monthStart }
         },
         _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
         orderBy: { _sum: { cost: 'desc' } },
         take: 10
+      }),
+      prisma.usageRecord.groupBy({
+        by: ['apiKeyId'],
+        where: {
+          ...where,
+          createdAt: { gte: thirtyDaysAgo }
+        },
+        _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
+        _count: true,
+        orderBy: { _sum: { cost: 'desc' } },
+        take: 8
       })
     ]);
+
+    const keyIds = topKeyRows.map(k => k.apiKeyId);
+    const keyInfos = keyIds.length
+      ? await prisma.apiKey.findMany({
+          where: { id: { in: keyIds } },
+          select: { id: true, name: true, user: { select: { name: true } } }
+        })
+      : [];
+    const keyMap = new Map(keyInfos.map(k => [k.id, k]));
 
     return {
       total: {
@@ -56,6 +79,16 @@ export async function usageRoutes(fastify: FastifyInstance) {
         tokensOut: m._sum.tokensOut || 0,
         cachedTokens: m._sum.cachedTokens || 0,
         cost: m._sum.cost || 0
+      })),
+      topKeys: topKeyRows.map(k => ({
+        keyId: k.apiKeyId,
+        name: keyMap.get(k.apiKeyId)?.name || `Key #${k.apiKeyId}`,
+        user: keyMap.get(k.apiKeyId)?.user?.name || '',
+        requests: k._count,
+        tokensIn: k._sum.tokensIn || 0,
+        tokensOut: k._sum.tokensOut || 0,
+        cachedTokens: k._sum.cachedTokens || 0,
+        cost: Number(k._sum.cost || 0)
       }))
     };
   });

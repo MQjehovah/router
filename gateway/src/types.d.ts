@@ -5,5 +5,6 @@ declare module 'fastify' {
   interface FastifyInstance {
     authenticate: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     rateLimit: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    quotaCheck: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }

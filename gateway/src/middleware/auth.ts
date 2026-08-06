@@ -7,6 +7,8 @@ export interface AuthData {
   dailyQuota: number;
   monthlyQuota: number;
   userBalance: number;
+  todayTokens: number;
+  monthTokens: number;
 }
 
 export async function authenticate(req: FastifyRequest, reply: FastifyReply) {

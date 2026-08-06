@@ -13,7 +13,7 @@ const FORWARD_HEADERS = ['anthropic-beta', 'anthropic-version', 'openai-organiza
 
 export async function messagesRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: MessagesBody }>('/v1/messages', {
-    preHandler: [fastify.authenticate, fastify.rateLimit]
+    preHandler: [fastify.authenticate, fastify.rateLimit, fastify.quotaCheck]
   }, async (req, reply) => {
     const { model, stream } = req.body;
     if (!model) {

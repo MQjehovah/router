@@ -50,8 +50,7 @@ async function verifyKey(apiKey: string): Promise<KeyVerifyResult> {
 
 async function doVerify(apiKey: string): Promise<KeyVerifyResult> {
   const keys = await prisma.apiKey.findMany({
-    where: { status: 'ACTIVE' },
-    include: { user: true }
+    where: { status: 'ACTIVE' }
   });
 
   for (const key of keys) {
@@ -65,8 +64,7 @@ async function doVerify(apiKey: string): Promise<KeyVerifyResult> {
         userId: key.userId,
         rateLimit: key.rateLimit,
         dailyQuota: key.dailyQuota,
-        monthlyQuota: key.monthlyQuota,
-        userBalance: key.user.balance
+        monthlyQuota: key.monthlyQuota
       };
     }
   }
@@ -84,7 +82,36 @@ export async function internalRoutes(fastify: FastifyInstance) {
     if (!result.valid) {
       return reply.status(401).send({ error: result.reason });
     }
-    return result;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    const [user, todayUsage, monthUsage] = await Promise.all([
+      prisma.user.findUnique({ where: { id: result.userId }, select: { balance: true } }),
+      prisma.usageRecord.aggregate({
+        where: { apiKeyId: result.keyId, createdAt: { gte: today } },
+        _sum: { tokensIn: true, tokensOut: true, cachedTokens: true }
+      }),
+      prisma.usageRecord.aggregate({
+        where: { apiKeyId: result.keyId, createdAt: { gte: monthStart } },
+        _sum: { tokensIn: true, tokensOut: true, cachedTokens: true }
+      })
+    ]);
+
+    const sumTokens = (u: { _sum: { tokensIn: number | null; tokensOut: number | null; cachedTokens: number | null } }) =>
+      (u._sum.tokensIn || 0) + (u._sum.tokensOut || 0) + (u._sum.cachedTokens || 0);
+
+    return {
+      keyId: result.keyId,
+      userId: result.userId,
+      rateLimit: result.rateLimit,
+      dailyQuota: result.dailyQuota,
+      monthlyQuota: result.monthlyQuota,
+      userBalance: Number(user?.balance ?? 0),
+      todayTokens: sumTokens(todayUsage),
+      monthTokens: sumTokens(monthUsage)
+    };
   });
 
   fastify.post<{ Body: { apiKey: string } }>('/internal/keys/models', async (req, reply) => {

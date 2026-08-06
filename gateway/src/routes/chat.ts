@@ -14,7 +14,7 @@ interface ChatBody {
 
 export async function chatRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: ChatBody }>('/v1/chat/completions', {
-    preHandler: [fastify.authenticate, fastify.rateLimit]
+    preHandler: [fastify.authenticate, fastify.rateLimit, fastify.quotaCheck]
   }, async (req, reply) => {
     const { model, messages, stream, ...options } = req.body;
 
