@@ -281,7 +281,7 @@ const trendOption = computed(() => {
       { type: 'value', name: '费用', nameTextStyle: { fontSize: 11 }, axisLabel: { formatter: '${value}' } }
     ],
     series: [
-      { name: '输入', type: 'bar', barMaxWidth: 14, data: t.map((r: any) => r.tokensIn) },
+      { name: '输入', type: 'bar', barMaxWidth: 14, data: t.map((r: any) => (r.tokensIn || 0) + (r.cachedTokens || 0)) },
       { name: '输出', type: 'bar', barMaxWidth: 14, data: t.map((r: any) => r.tokensOut) },
       { name: '费用', type: 'line', yAxisIndex: 1, smooth: true, data: t.map((r: any) => Number(r.cost).toFixed(4)) }
     ]

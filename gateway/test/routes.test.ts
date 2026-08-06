@@ -122,7 +122,7 @@ test('POST /v1/responses: passthrough and reports usage', async () => {
   await new Promise(r => setTimeout(r, 50));
   const usage = reported.find(r => r.model === 'deepseek-chat');
   assert.ok(usage, 'usage should be reported');
-  assert.equal(usage.tokensIn, 100);
+  assert.equal(usage.tokensIn, 70);
   assert.equal(usage.tokensOut, 50);
   assert.equal(usage.cachedTokens, 30);
 });
@@ -168,7 +168,7 @@ test('POST /v1/responses: streaming passthrough preserves bytes and reports usag
   await new Promise(r => setTimeout(r, 50));
   const usage = reported.filter(r => r.model === 'deepseek-chat').at(-1);
   assert.ok(usage, 'usage should be reported for streaming');
-  assert.equal(usage.tokensIn, 100);
+  assert.equal(usage.tokensIn, 70);
   assert.equal(usage.tokensOut, 50);
   assert.equal(usage.cachedTokens, 30);
 });

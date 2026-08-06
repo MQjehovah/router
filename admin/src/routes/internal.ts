@@ -100,7 +100,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
     ]);
 
     const sumTokens = (u: { _sum: { tokensIn: number | null; tokensOut: number | null; cachedTokens: number | null } }) =>
-      (u._sum.tokensIn || 0) + (u._sum.tokensOut || 0);
+      (u._sum.tokensIn || 0) + (u._sum.tokensOut || 0) + (u._sum.cachedTokens || 0);
 
     return {
       keyId: result.keyId,

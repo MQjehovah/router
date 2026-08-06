@@ -10,6 +10,9 @@ export interface Usage {
   cachedTokens: number;
 }
 
+// tokensIn = 非缓存输入（不含缓存命中）；cachedTokens = 缓存命中输入（独立）
+// totalTokens = tokensIn + tokensOut + cachedTokens，对所有协议成立。
+
 export type UsageFormat = 'chat' | 'responses' | 'anthropic' | 'google';
 
 export function formatFor(providerType: string): UsageFormat {
@@ -23,10 +26,11 @@ export function formatFor(providerType: string): UsageFormat {
 function readUsageByFormat(format: UsageFormat, raw: any): Usage {
   if (format === 'responses') {
     const u = raw?.usage || {};
+    const cached = u.input_tokens_details?.cached_tokens || 0;
     return {
-      tokensIn: u.input_tokens || 0,
+      tokensIn: Math.max(0, (u.input_tokens || 0) - cached),
       tokensOut: u.output_tokens || 0,
-      cachedTokens: u.input_tokens_details?.cached_tokens || 0
+      cachedTokens: cached
     };
   }
   if (format === 'anthropic') {
@@ -39,17 +43,19 @@ function readUsageByFormat(format: UsageFormat, raw: any): Usage {
   }
   if (format === 'google') {
     const u = raw?.usageMetadata || {};
+    const cached = u.cachedContentTokenCount || 0;
     return {
-      tokensIn: u.promptTokenCount || 0,
+      tokensIn: Math.max(0, (u.promptTokenCount || 0) - cached),
       tokensOut: u.candidatesTokenCount || 0,
-      cachedTokens: u.cachedContentTokenCount || 0
+      cachedTokens: cached
     };
   }
   const u = raw?.usage || {};
+  const cached = u.prompt_cache_hit_tokens ?? u.prompt_tokens_details?.cached_tokens ?? 0;
   return {
-    tokensIn: u.prompt_tokens || 0,
+    tokensIn: Math.max(0, (u.prompt_tokens || 0) - cached),
     tokensOut: u.completion_tokens || 0,
-    cachedTokens: u.prompt_cache_hit_tokens ?? u.prompt_tokens_details?.cached_tokens ?? 0
+    cachedTokens: cached
   };
 }
 
@@ -63,9 +69,8 @@ export function extractUsageByFormat(format: UsageFormat, body: any): Usage {
 
 export function calculateCost(usage: Usage, pricing: Pricing): number {
   const per = (v: number) => v / 1_000_000;
-  const missInput = Math.max(0, usage.tokensIn - usage.cachedTokens);
   return (
-    missInput * per(pricing.inputPrice || 0)
+    usage.tokensIn * per(pricing.inputPrice || 0)
     + usage.cachedTokens * per(pricing.cachePrice || 0)
     + usage.tokensOut * per(pricing.outputPrice || 0)
   );

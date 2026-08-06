@@ -130,7 +130,7 @@ const statCards = computed(() => [
   {
     label: '总 Token', icon: Files,
     grad: 'linear-gradient(135deg, rgba(99,102,241,.18), rgba(99,102,241,.05))',
-    value: ((stats.value.total?.tokensIn ?? 0) + (stats.value.total?.tokensOut ?? 0)).toLocaleString(),
+    value: ((stats.value.total?.tokensIn ?? 0) + (stats.value.total?.tokensOut ?? 0) + (stats.value.total?.cachedTokens ?? 0)).toLocaleString(),
     hint: '输入 + 输出'
   },
   {
@@ -260,7 +260,7 @@ const barOption = computed(() => {
     series: [
       {
         name: '输入 Token', type: 'bar', stack: 't',
-        data: m.map((x: any) => x.tokensIn),
+        data: m.map((x: any) => (x.tokensIn || 0) + (x.cachedTokens || 0)),
         itemStyle: { color: '#22d3ee', borderRadius: [0, 0, 0, 0] }, barMaxWidth: 26
       },
       {
