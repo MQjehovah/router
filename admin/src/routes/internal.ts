@@ -63,8 +63,8 @@ async function doVerify(apiKey: string): Promise<KeyVerifyResult> {
         keyId: key.id,
         userId: key.userId,
         rateLimit: key.rateLimit,
-        dailyQuota: key.dailyQuota,
-        monthlyQuota: key.monthlyQuota
+        dailyQuota: Number(key.dailyQuota),
+        monthlyQuota: Number(key.monthlyQuota)
       };
     }
   }

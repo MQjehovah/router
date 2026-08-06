@@ -79,8 +79,8 @@ model ApiKey {
   name         String
   status       ApiKeyStatus @default(ACTIVE)
   rateLimit    Int          @default(60)
-  dailyQuota   Int          @default(100000)
-  monthlyQuota Int          @default(3000000)
+  dailyQuota   BigInt       @default(100000)
+  monthlyQuota BigInt       @default(3000000)
   expiresAt    DateTime?
   createdAt    DateTime     @default(now())
 

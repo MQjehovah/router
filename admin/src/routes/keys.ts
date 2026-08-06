@@ -53,6 +53,8 @@ export async function keyRoutes(fastify: FastifyInstance) {
     return keys.map(k => ({
       ...k,
       keyHash: k.keyHash.substring(0, 8) + '****',
+      dailyQuota: Number(k.dailyQuota),
+      monthlyQuota: Number(k.monthlyQuota),
       allowedModels: k.allowedModels.map(a => a.model),
       createdAt: k.createdAt.toISOString(),
       expiresAt: k.expiresAt?.toISOString()
@@ -97,8 +99,8 @@ export async function keyRoutes(fastify: FastifyInstance) {
       key: rawKey,
       name: apiKey.name,
       rateLimit: apiKey.rateLimit,
-      dailyQuota: apiKey.dailyQuota,
-      monthlyQuota: apiKey.monthlyQuota,
+      dailyQuota: Number(apiKey.dailyQuota),
+      monthlyQuota: Number(apiKey.monthlyQuota),
       createdAt: apiKey.createdAt.toISOString(),
       expiresAt: apiKey.expiresAt?.toISOString()
     };
@@ -148,7 +150,17 @@ export async function keyRoutes(fastify: FastifyInstance) {
       detail: { data }
     });
 
-    return updated;
+    return {
+      id: updated.id,
+      userId: updated.userId,
+      name: updated.name,
+      status: updated.status,
+      rateLimit: updated.rateLimit,
+      dailyQuota: Number(updated.dailyQuota),
+      monthlyQuota: Number(updated.monthlyQuota),
+      expiresAt: updated.expiresAt?.toISOString(),
+      createdAt: updated.createdAt.toISOString()
+    };
   });
 
   fastify.post<{ Params: { id: string } }>('/api/keys/:id/regenerate', {
