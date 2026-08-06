@@ -66,7 +66,7 @@ export async function usageRoutes(fastify: FastifyInstance) {
         WHERE u."createdAt" >= ${thirtyDaysAgo}
           AND (${req.user.role === 'ADMIN'} OR k."userId" = ${req.user.id})
         GROUP BY u."apiKeyId"
-        ORDER BY (COALESCE(SUM(u."tokensIn"), 0) + COALESCE(SUM(u."tokensOut"), 0) + COALESCE(SUM(u."cachedTokens"), 0)) DESC
+        ORDER BY (COALESCE(SUM(u."tokensIn"), 0) + COALESCE(SUM(u."tokensOut"), 0)) DESC
         LIMIT 8
       `
     ]);
@@ -120,7 +120,7 @@ export async function usageRoutes(fastify: FastifyInstance) {
         tokensIn: Number(k.tokensIn || 0),
         tokensOut: Number(k.tokensOut || 0),
         cachedTokens: Number(k.cachedTokens || 0),
-        totalTokens: Number(k.tokensIn || 0) + Number(k.tokensOut || 0) + Number(k.cachedTokens || 0),
+        totalTokens: Number(k.tokensIn || 0) + Number(k.tokensOut || 0),
         cost: Number(k.cost || 0)
       }))
     };
