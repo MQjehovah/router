@@ -1,5 +1,14 @@
 <template>
   <div class="page">
+    <header class="page-head">
+      <h1 class="page-title">仪表盘</h1>
+      <div class="seg" role="tablist" aria-label="统计范围">
+        <button v-for="r in ranges" :key="r" :class="{ active: range === r }" @click="setRange(r)">
+          {{ RANGE_LABEL[r] }}
+        </button>
+      </div>
+    </header>
+
     <!-- stat cards -->
     <div class="stats-grid">
       <article v-for="s in statCards" :key="s.label" class="stat-card tech-card">
@@ -33,8 +42,10 @@
 
       <section class="chart-card tech-card">
         <header class="chart-head">
-          <h3 class="chart-title">模型消耗占比</h3>
-          <p class="chart-sub">本月各模型费用份额</p>
+          <div>
+            <h3 class="chart-title">模型消耗占比</h3>
+            <p class="chart-sub">{{ RANGE_LABEL[range] }}各模型费用份额</p>
+          </div>
         </header>
         <v-chart v-if="statsReady" class="chart" :option="pieOption" autoresize />
       </section>
@@ -43,7 +54,7 @@
     <section class="chart-card tech-card chart-model">
       <header class="chart-head">
         <h3 class="chart-title">模型 Token 使用</h3>
-        <p class="chart-sub">按模型统计的输入/输出 Token（本月）</p>
+        <p class="chart-sub">按模型统计的输入/输出 Token（{{ RANGE_LABEL[range] }}）</p>
       </header>
       <v-chart v-if="statsReady" class="chart chart-lg" :option="barOption" autoresize />
     </section>
@@ -52,7 +63,7 @@
       <section class="chart-card tech-card">
         <header class="chart-head">
           <h3 class="chart-title">成本 TOP Key</h3>
-          <p class="chart-sub">近 30 天费用最高的 Key</p>
+          <p class="chart-sub">{{ RANGE_LABEL[range] }}费用最高的 Key</p>
         </header>
         <div class="topkeys">
           <div v-if="(stats.topKeys || []).length" class="tk-table">
@@ -69,14 +80,14 @@
               <span class="tk-cost font-mono">${{ Number(k.cost || 0).toFixed(4) }}</span>
             </div>
           </div>
-          <div v-else class="chart-empty">近 30 天暂无数据</div>
+          <div v-else class="chart-empty">{{ RANGE_LABEL[range] }}暂无数据</div>
         </div>
       </section>
 
       <section class="chart-card tech-card">
         <header class="chart-head">
           <h3 class="chart-title">总 Token TOP Key</h3>
-          <p class="chart-sub">近 30 天 Token 消耗最高的 Key</p>
+          <p class="chart-sub">{{ RANGE_LABEL[range] }}Token 消耗最高的 Key</p>
         </header>
         <div class="topkeys">
           <div v-if="(stats.topTokenKeys || []).length" class="tk-table">
@@ -93,7 +104,7 @@
               <span class="tk-token font-mono">{{ (k.totalTokens || 0).toLocaleString() }}</span>
             </div>
           </div>
-          <div v-else class="chart-empty">近 30 天暂无数据</div>
+          <div v-else class="chart-empty">{{ RANGE_LABEL[range] }}暂无数据</div>
         </div>
       </section>
     </div>
@@ -113,45 +124,46 @@ import { Promotion, Files, Coin, Odometer } from '@element-plus/icons-vue';impor
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent]);
 
-const stats = shallowRef<any>({ total: {}, today: {}, monthly: [] });
+const RANGE_LABEL: Record<string, string> = { today: '今日', month: '本月', total: '累计' };
+const ranges = ['today', 'month', 'total'];
+const range = ref('month');
+const stats = shallowRef<any>({ summary: {}, models: [], topKeys: [], topTokenKeys: [] });
 const trend = shallowRef<any[]>([]);
 const trendDays = ref(7);
 const loading = ref(true);
 const trendReady = ref(false);
 const statsReady = ref(false);
 
-const statCards = computed(() => [
-  {
-    label: '总请求数', icon: Promotion,
-    grad: 'linear-gradient(135deg, rgba(34,211,238,.16), rgba(34,211,238,.05))',
-    value: stats.value.total?.requests?.toLocaleString() ?? '0',
-    hint: '累计调用次数'
-  },
-  {
-    label: '总 Token', icon: Files,
-    grad: 'linear-gradient(135deg, rgba(99,102,241,.18), rgba(99,102,241,.05))',
-    value: ((stats.value.total?.tokensIn ?? 0) + (stats.value.total?.tokensOut ?? 0) + (stats.value.total?.cachedTokens ?? 0)).toLocaleString(),
-    hint: '输入 + 输出'
-  },
-  {
-    label: '缓存命中', icon: Odometer,
-    grad: 'linear-gradient(135deg, rgba(168,85,247,.18), rgba(168,85,247,.05))',
-    value: (stats.value.total?.cachedTokens ?? 0).toLocaleString(),
-    hint: '其中输入 Token 的缓存部分'
-  },
-  {
-    label: '总消费', icon: Coin,
-    grad: 'linear-gradient(135deg, rgba(52,211,153,.18), rgba(52,211,153,.05))',
-    value: '$' + Number(stats.value.total?.cost ?? 0).toFixed(4),
-    hint: '累计费用'
-  },
-  {
-    label: '今日请求', icon: Odometer,
-    grad: 'linear-gradient(135deg, rgba(251,191,36,.18), rgba(251,191,36,.05))',
-    value: (stats.value.today?.requests ?? 0).toLocaleString(),
-    hint: '今天到现在'
-  }
-]);
+const statCards = computed(() => {
+  const s = stats.value.summary || {};
+  const hint = RANGE_LABEL[range.value] + ' ';
+  return [
+    {
+      label: '请求数', icon: Promotion,
+      grad: 'linear-gradient(135deg, rgba(34,211,238,.16), rgba(34,211,238,.05))',
+      value: (s.requests || 0).toLocaleString(),
+      hint: hint + '调用次数'
+    },
+    {
+      label: 'Token 消耗', icon: Files,
+      grad: 'linear-gradient(135deg, rgba(99,102,241,.18), rgba(99,102,241,.05))',
+      value: ((s.tokensIn ?? 0) + (s.tokensOut ?? 0) + (s.cachedTokens ?? 0)).toLocaleString(),
+      hint: hint + '输入 + 输出 + 缓存'
+    },
+    {
+      label: '缓存命中', icon: Odometer,
+      grad: 'linear-gradient(135deg, rgba(168,85,247,.18), rgba(168,85,247,.05))',
+      value: (s.cachedTokens || 0).toLocaleString(),
+      hint: hint + '其中输入 Token 的缓存部分'
+    },
+    {
+      label: '消费', icon: Coin,
+      grad: 'linear-gradient(135deg, rgba(52,211,153,.18), rgba(52,211,153,.05))',
+      value: '$' + Number(s.cost ?? 0).toFixed(4),
+      hint: hint + '费用'
+    }
+  ];
+});
 
 const AXIS = {
   axisLine: { lineStyle: { color: 'rgba(148,163,184,.16)' } },
@@ -217,7 +229,7 @@ const trendOption = computed(() => ({
 }));
 
 const pieOption = computed(() => {
-  const data = (stats.value.monthly || [])
+  const data = (stats.value.models || [])
     .filter((m: any) => Number(m.cost) > 0)
     .map((m: any) => ({ name: m.model, value: Number(m.cost) }));
   return {
@@ -244,7 +256,7 @@ const pieOption = computed(() => {
 });
 
 const barOption = computed(() => {
-  const m = stats.value.monthly || [];
+  const m = stats.value.models || [];
   return {
     backgroundColor: 'transparent',
     tooltip: {
@@ -274,11 +286,18 @@ const barOption = computed(() => {
 
 const loadStats = async () => {
   try {
-    const { data } = await api.get('/api/usage/stats');
+    const { data } = await api.get('/api/usage/stats', { params: { range: range.value } });
     stats.value = data;
   } finally {
     statsReady.value = true;
   }
+};
+
+const setRange = (r: string) => {
+  if (range.value === r) return;
+  range.value = r;
+  statsReady.value = false;
+  loadStats();
 };
 
 const loadTrend = async (days: number) => {
@@ -299,6 +318,20 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

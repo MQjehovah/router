@@ -1,47 +1,46 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 export async function usageRoutes(fastify: FastifyInstance) {
-  fastify.get('/api/usage/stats', {
+  fastify.get<{ Querystring: { range?: string } }>('/api/usage/stats', {
     preHandler: [fastify.authenticate]
-  }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const where = req.user.role === 'ADMIN' ? {} : { apiKey: { userId: req.user.id } };
+  }, async (req, reply) => {
+    const range = req.query.range === 'today' || req.query.range === 'month' ? req.query.range : 'total';
+    const baseWhere = req.user.role === 'ADMIN' ? {} : { apiKey: { userId: req.user.id } };
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-    const thirtyDaysAgo = new Date(today);
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
 
-    const [totalUsage, todayUsage, topModels, topKeyRows, topTokenRows] = await Promise.all([
+    let timeWhere = {};
+    if (range === 'today') timeWhere = { createdAt: { gte: today } };
+    else if (range === 'month') timeWhere = { createdAt: { gte: monthStart } };
+    const where = { ...baseWhere, ...timeWhere };
+
+    const ands: Prisma.Sql[] = [];
+    if (range === 'today') ands.push(Prisma.sql`u."createdAt" >= ${today}`);
+    if (range === 'month') ands.push(Prisma.sql`u."createdAt" >= ${monthStart}`);
+    if (req.user.role !== 'ADMIN') ands.push(Prisma.sql`k."userId" = ${req.user.id}`);
+    const whereSql = ands.length ? Prisma.sql`WHERE ${Prisma.join(ands, ' AND ')}` : Prisma.empty;
+
+    const [usage, topModels, topKeyRows, topTokenRows] = await Promise.all([
       prisma.usageRecord.aggregate({
         where,
         _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
         _count: true
       }),
-      prisma.usageRecord.aggregate({
-        where: { ...where, createdAt: { gte: today } },
-        _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
-        _count: true
-      }),
       prisma.usageRecord.groupBy({
         by: ['model'],
-        where: {
-          ...where,
-          createdAt: { gte: monthStart }
-        },
+        where,
         _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
         orderBy: { _sum: { cost: 'desc' } },
         take: 10
       }),
       prisma.usageRecord.groupBy({
         by: ['apiKeyId'],
-        where: {
-          ...where,
-          createdAt: { gte: thirtyDaysAgo }
-        },
+        where,
         _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
         _count: true,
         orderBy: { _sum: { cost: 'desc' } },
@@ -63,8 +62,7 @@ export async function usageRoutes(fastify: FastifyInstance) {
                COALESCE(SUM(u."cost"), 0) AS cost
         FROM "UsageRecord" u
         JOIN "ApiKey" k ON k.id = u."apiKeyId"
-        WHERE u."createdAt" >= ${thirtyDaysAgo}
-          AND (${req.user.role === 'ADMIN'} OR k."userId" = ${req.user.id})
+        ${whereSql}
         GROUP BY u."apiKeyId"
         ORDER BY (COALESCE(SUM(u."tokensIn"), 0) + COALESCE(SUM(u."tokensOut"), 0) + COALESCE(SUM(u."cachedTokens"), 0)) DESC
         LIMIT 8
@@ -81,21 +79,15 @@ export async function usageRoutes(fastify: FastifyInstance) {
     const keyMap = new Map(keyInfos.map(k => [k.id, k]));
 
     return {
-      total: {
-        requests: totalUsage._count,
-        tokensIn: totalUsage._sum.tokensIn || 0,
-        tokensOut: totalUsage._sum.tokensOut || 0,
-        cachedTokens: totalUsage._sum.cachedTokens || 0,
-        cost: totalUsage._sum.cost || 0
+      range,
+      summary: {
+        requests: usage._count,
+        tokensIn: usage._sum.tokensIn || 0,
+        tokensOut: usage._sum.tokensOut || 0,
+        cachedTokens: usage._sum.cachedTokens || 0,
+        cost: usage._sum.cost || 0
       },
-      today: {
-        requests: todayUsage._count,
-        tokensIn: todayUsage._sum.tokensIn || 0,
-        tokensOut: todayUsage._sum.tokensOut || 0,
-        cachedTokens: todayUsage._sum.cachedTokens || 0,
-        cost: todayUsage._sum.cost || 0
-      },
-      monthly: topModels.map(m => ({
+      models: topModels.map(m => ({
         model: m.model,
         tokensIn: m._sum.tokensIn || 0,
         tokensOut: m._sum.tokensOut || 0,
