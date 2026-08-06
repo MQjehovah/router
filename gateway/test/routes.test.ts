@@ -7,6 +7,7 @@ const reported: any[] = [];
 let admin: Fastify.FastifyInstance;
 let gateway: Fastify.FastifyInstance;
 let upstream: Fastify.FastifyInstance;
+let resolveCalls = 0;
 
 const RESPONSES_CONFIG = {
   model: 'deepseek-chat', providerType: 'DEEPSEEK',
@@ -36,12 +37,16 @@ const ERROR_MESSAGES_CONFIG = { ...MESSAGES_CONFIG, model: 'claude-error', proto
 before(async () => {
   process.env.INTERNAL_SECRET = 'test-secret';
   process.env.ADMIN_API_URL = 'http://127.0.0.1:3998';
+  process.env.RESOLVE_CACHE_TTL = '0.5';
 
   admin = Fastify();
   admin.post('/internal/keys/verify', async (_req, reply) => reply.send({ keyId: 1, userId: 1, rateLimit: 60, dailyQuota: 100000, monthlyQuota: 3000000, userBalance: 100 }));
   admin.post('/internal/models/resolve', async (req, reply) => {
+    resolveCalls++;
     const { model } = req.body as any;
     if (model === 'deepseek-chat') return RESPONSES_CONFIG;
+    if (model === 'deepseek-ttl') return RESPONSES_CONFIG;
+    if (model === 'deepseek-cache-hit') return RESPONSES_CONFIG;
     if (model === 'chat-only') return CHAT_ONLY_CONFIG;
     if (model === 'deepseek-error') return ERROR_RESPONSES_CONFIG;
     if (model === 'deepseek-error-text') return ERROR_TEXT_CONFIG;
@@ -197,6 +202,34 @@ test('POST /v1/responses: model not found maps to openai error', async () => {
   const body = res.json();
   assert.ok(body.error.message, 'error message should be set');
   assert.equal(body.error.type, 'invalid_request_error');
+});
+
+test('POST /v1/responses: resolve result is cached across repeated requests', async () => {
+  const base = resolveCalls;
+  for (let i = 0; i < 3; i++) {
+    const res = await gateway.inject({
+      method: 'POST', url: '/v1/responses',
+      headers: { authorization: 'Bearer test-key' },
+      payload: { model: 'deepseek-cache-hit', input: [] }
+    });
+    assert.equal(res.statusCode, 200);
+  }
+  assert.equal(resolveCalls, base + 1, 'resolve should be called only once for repeated identical requests');
+});
+
+test('POST /v1/responses: resolve cache expires after TTL', async () => {
+  const base = resolveCalls;
+  const req = () => gateway.inject({
+    method: 'POST', url: '/v1/responses',
+    headers: { authorization: 'Bearer test-key' },
+    payload: { model: 'deepseek-ttl', input: [] }
+  });
+  const r1 = await req();
+  assert.equal(r1.statusCode, 200);
+  await new Promise(r => setTimeout(r, 700));
+  const r2 = await req();
+  assert.equal(r2.statusCode, 200);
+  assert.equal(resolveCalls, base + 2, 'resolve should be called again after TTL expiry');
 });
 
 test('POST /v1/responses: upstream json error is forwarded with real status', async () => {

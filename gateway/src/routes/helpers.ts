@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Response } from 'undici';
 import { createUsageTracker, calculateCost, Usage, Pricing, UsageFormat } from '../providers/usage.js';
+import { createTimedCache } from '../cache.js';
 
 export interface ProtocolPath {
   protocol: string;
@@ -28,10 +29,33 @@ export function extractApiKey(req: FastifyRequest): string {
   return typeof xk === 'string' ? xk : '';
 }
 
+const resolveCache = createTimedCache<ResolvedProvider>(() => {
+  const raw = Number(process.env.RESOLVE_CACHE_TTL);
+  return Number.isFinite(raw) && raw > 0 ? raw * 1000 : 60_000;
+});
+
 export async function resolveProvider(req: FastifyRequest, model: string): Promise<{ ok: true; config: ResolvedProvider } | { ok: false; status: number; body: any }> {
+  const apiKey = extractApiKey(req);
+  if (!apiKey) {
+    return resolveRemote(req, apiKey, model);
+  }
+
+  const cacheKey = `${apiKey}|${model}`;
+  const cached = resolveCache.get(cacheKey);
+  if (cached) {
+    return { ok: true, config: cached };
+  }
+
+  const result = await resolveRemote(req, apiKey, model);
+  if (result.ok) {
+    resolveCache.set(cacheKey, result.config);
+  }
+  return result;
+}
+
+async function resolveRemote(req: FastifyRequest, apiKey: string, model: string): Promise<{ ok: true; config: ResolvedProvider } | { ok: false; status: number; body: any }> {
   const adminUrl = process.env.ADMIN_API_URL || 'http://localhost:3001';
   const secret = process.env.INTERNAL_SECRET || '';
-  const apiKey = extractApiKey(req);
 
   try {
     const response = await fetch(`${adminUrl}/internal/models/resolve`, {
