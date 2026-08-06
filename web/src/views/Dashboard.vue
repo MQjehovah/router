@@ -48,29 +48,55 @@
       <v-chart v-if="statsReady" class="chart chart-lg" :option="barOption" autoresize />
     </section>
 
-    <section class="chart-card tech-card">
-      <header class="chart-head">
-        <h3 class="chart-title">成本 TOP Key</h3>
-        <p class="chart-sub">近 30 天费用最高的 Key</p>
-      </header>
-      <div class="topkeys">
-        <div v-if="(stats.topKeys || []).length" class="tk-table">
-          <div class="tk-row tk-head">
-            <span>#</span><span>Key</span><span class="tk-right">请求</span><span class="tk-right">费用</span>
+    <div class="chart-row top-row">
+      <section class="chart-card tech-card">
+        <header class="chart-head">
+          <h3 class="chart-title">成本 TOP Key</h3>
+          <p class="chart-sub">近 30 天费用最高的 Key</p>
+        </header>
+        <div class="topkeys">
+          <div v-if="(stats.topKeys || []).length" class="tk-table">
+            <div class="tk-row tk-head">
+              <span>#</span><span>Key</span><span class="tk-right">请求</span><span class="tk-right">费用</span>
+            </div>
+            <div v-for="(k, i) in stats.topKeys" :key="k.keyId" class="tk-row">
+              <span class="tk-rank">{{ i + 1 }}</span>
+              <span class="tk-name">
+                <span class="font-mono">{{ k.name }}</span>
+                <span v-if="k.user" class="tk-user">{{ k.user }}</span>
+              </span>
+              <span class="tk-num font-mono">{{ (k.requests || 0).toLocaleString() }}</span>
+              <span class="tk-cost font-mono">${{ Number(k.cost || 0).toFixed(4) }}</span>
+            </div>
           </div>
-          <div v-for="(k, i) in stats.topKeys" :key="k.keyId" class="tk-row">
-            <span class="tk-rank">{{ i + 1 }}</span>
-            <span class="tk-name">
-              <span class="font-mono">{{ k.name }}</span>
-              <span v-if="k.user" class="tk-user">{{ k.user }}</span>
-            </span>
-            <span class="tk-num font-mono">{{ (k.requests || 0).toLocaleString() }}</span>
-            <span class="tk-cost font-mono">${{ Number(k.cost || 0).toFixed(4) }}</span>
-          </div>
+          <div v-else class="chart-empty">近 30 天暂无数据</div>
         </div>
-        <div v-else class="chart-empty">近 30 天暂无数据</div>
-      </div>
-    </section>
+      </section>
+
+      <section class="chart-card tech-card">
+        <header class="chart-head">
+          <h3 class="chart-title">总 Token TOP Key</h3>
+          <p class="chart-sub">近 30 天 Token 消耗最高的 Key</p>
+        </header>
+        <div class="topkeys">
+          <div v-if="(stats.topTokenKeys || []).length" class="tk-table">
+            <div class="tk-row tk-head">
+              <span>#</span><span>Key</span><span class="tk-right">请求</span><span class="tk-right">Token</span>
+            </div>
+            <div v-for="(k, i) in stats.topTokenKeys" :key="k.keyId" class="tk-row">
+              <span class="tk-rank">{{ i + 1 }}</span>
+              <span class="tk-name">
+                <span class="font-mono">{{ k.name }}</span>
+                <span v-if="k.user" class="tk-user">{{ k.user }}</span>
+              </span>
+              <span class="tk-num font-mono">{{ (k.requests || 0).toLocaleString() }}</span>
+              <span class="tk-token font-mono">{{ (k.totalTokens || 0).toLocaleString() }}</span>
+            </div>
+          </div>
+          <div v-else class="chart-empty">近 30 天暂无数据</div>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -395,6 +421,14 @@ onMounted(async () => {
   margin-top: 18px;
 }
 
+.top-row {
+  grid-template-columns: 1fr 1fr;
+  margin-top: 18px;
+}
+@media (max-width: 1100px) {
+  .top-row { grid-template-columns: 1fr; }
+}
+
 .topkeys {
   padding: 4px 2px 0;
 }
@@ -444,6 +478,11 @@ onMounted(async () => {
 .tk-cost {
   text-align: right;
   color: #6ee7b7;
+  font-weight: 600;
+}
+.tk-token {
+  text-align: right;
+  color: #67e8f9;
   font-weight: 600;
 }
 .chart-empty {

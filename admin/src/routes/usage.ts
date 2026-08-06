@@ -15,7 +15,7 @@ export async function usageRoutes(fastify: FastifyInstance) {
     const thirtyDaysAgo = new Date(today);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
 
-    const [totalUsage, todayUsage, topModels, topKeyRows] = await Promise.all([
+    const [totalUsage, todayUsage, topModels, topKeyRows, topTokenRows] = await Promise.all([
       prisma.usageRecord.aggregate({
         where,
         _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
@@ -46,10 +46,32 @@ export async function usageRoutes(fastify: FastifyInstance) {
         _count: true,
         orderBy: { _sum: { cost: 'desc' } },
         take: 8
-      })
+      }),
+      prisma.$queryRaw<Array<{
+        apiKeyId: number;
+        requests: number;
+        tokensIn: bigint;
+        tokensOut: bigint;
+        cachedTokens: bigint;
+        cost: number;
+      }>>`
+        SELECT u."apiKeyId",
+               COUNT(*)::int AS requests,
+               COALESCE(SUM(u."tokensIn"), 0)::bigint AS "tokensIn",
+               COALESCE(SUM(u."tokensOut"), 0)::bigint AS "tokensOut",
+               COALESCE(SUM(u."cachedTokens"), 0)::bigint AS "cachedTokens",
+               COALESCE(SUM(u."cost"), 0) AS cost
+        FROM "UsageRecord" u
+        JOIN "ApiKey" k ON k.id = u."apiKeyId"
+        WHERE u."createdAt" >= ${thirtyDaysAgo}
+          AND (${req.user.role === 'ADMIN'} OR k."userId" = ${req.user.id})
+        GROUP BY u."apiKeyId"
+        ORDER BY (COALESCE(SUM(u."tokensIn"), 0) + COALESCE(SUM(u."tokensOut"), 0) + COALESCE(SUM(u."cachedTokens"), 0)) DESC
+        LIMIT 8
+      `
     ]);
 
-    const keyIds = topKeyRows.map(k => k.apiKeyId);
+    const keyIds = [...topKeyRows.map(k => k.apiKeyId), ...topTokenRows.map(k => k.apiKeyId)];
     const keyInfos = keyIds.length
       ? await prisma.apiKey.findMany({
           where: { id: { in: keyIds } },
@@ -89,6 +111,17 @@ export async function usageRoutes(fastify: FastifyInstance) {
         tokensOut: k._sum.tokensOut || 0,
         cachedTokens: k._sum.cachedTokens || 0,
         cost: Number(k._sum.cost || 0)
+      })),
+      topTokenKeys: topTokenRows.map(k => ({
+        keyId: k.apiKeyId,
+        name: keyMap.get(k.apiKeyId)?.name || `Key #${k.apiKeyId}`,
+        user: keyMap.get(k.apiKeyId)?.user?.name || '',
+        requests: k.requests,
+        tokensIn: Number(k.tokensIn || 0),
+        tokensOut: Number(k.tokensOut || 0),
+        cachedTokens: Number(k.cachedTokens || 0),
+        totalTokens: Number(k.tokensIn || 0) + Number(k.tokensOut || 0) + Number(k.cachedTokens || 0),
+        cost: Number(k.cost || 0)
       }))
     };
   });
