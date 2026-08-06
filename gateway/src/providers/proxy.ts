@@ -1,6 +1,10 @@
 import { fetch, setGlobalDispatcher, Agent } from 'undici';
 
-setGlobalDispatcher(new Agent({ connect: { timeout: 120000 } }));
+setGlobalDispatcher(new Agent({
+  connect: { timeout: 120000 },
+  keepAliveTimeout: 60000,
+  keepAliveMaxTimeout: 120000
+}));
 
 export async function proxyRequest(
   baseUrl: string,
@@ -35,10 +39,7 @@ export async function proxyRequest(
   const response = await fetch(url, {
     method: 'POST',
     headers,
-    body: JSON.stringify(body),
-    dispatcher: new Agent({
-      connect: { timeout: 120000 }
-    })
+    body: JSON.stringify(body)
   });
 
   return response;
