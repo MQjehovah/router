@@ -20,6 +20,7 @@ model User {
   apiKeys      ApiKey[]
   bills        Bill[]
   transactions Transaction[]
+  auditLogs    AuditLog[]
 }
 
 enum Role {
@@ -168,4 +169,18 @@ model ProviderProtocol {
   createdAt  DateTime @default(now())
 
   @@unique([providerId, protocol])
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String
+  targetType String
+  targetId   String?
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType])
+  @@index([userId])
 }

@@ -12,6 +12,7 @@ import { providerRoutes } from './routes/providers.js';
 import { modelRoutes } from './routes/models.js';
 import { usageRoutes } from './routes/usage.js';
 import { billingRoutes } from './routes/billing.js';
+import { auditRoutes } from './routes/audit.js';
 
 dotenv.config();
 
@@ -45,6 +46,7 @@ await fastify.register(providerRoutes);
 await fastify.register(modelRoutes);
 await fastify.register(usageRoutes);
 await fastify.register(billingRoutes);
+await fastify.register(auditRoutes);
 
 fastify.get('/health', async () => {
   try {

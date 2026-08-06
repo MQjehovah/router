@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { PROTOCOLS } from '../protocols.js';
+import { writeAudit } from '../audit.js';
 
 const prisma = new PrismaClient();
 
@@ -139,6 +140,14 @@ export async function providerRoutes(fastify: FastifyInstance) {
       return p;
     });
 
+    writeAudit({
+      actorId: req.user.id,
+      action: 'create',
+      targetType: 'provider',
+      targetId: provider.id,
+      detail: { name: provider.name, type: provider.type, baseUrl: provider.baseUrl }
+    });
+
     return { ...provider, apiKey: req.body.apiKey };
   });
 
@@ -172,6 +181,14 @@ export async function providerRoutes(fastify: FastifyInstance) {
       });
     }
 
+    writeAudit({
+      actorId: req.user.id,
+      action: 'update',
+      targetType: 'provider',
+      targetId: providerId,
+      detail: { changed: Object.keys(data) }
+    });
+
     return { ...provider, apiKey: '****' };
   });
 
@@ -202,8 +219,21 @@ export async function providerRoutes(fastify: FastifyInstance) {
     }
 
     const providerId = parseInt(req.params.id);
+    const provider = await prisma.provider.findUnique({ where: { id: providerId } });
+    if (!provider) {
+      return reply.status(404).send({ error: 'Provider not found' });
+    }
     await prisma.providerProtocol.deleteMany({ where: { providerId } });
     await prisma.provider.delete({ where: { id: providerId } });
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'delete',
+      targetType: 'provider',
+      targetId: providerId,
+      detail: { name: provider.name }
+    });
+
     return { success: true };
   });
 
@@ -236,6 +266,15 @@ export async function providerRoutes(fastify: FastifyInstance) {
       create: { providerId, protocol: protocol as any, path: path || null },
       update: { path: path || null }
     });
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'create',
+      targetType: 'protocol',
+      targetId: row.id,
+      detail: { providerId, protocol, path: path || null }
+    });
+
     return row;
   });
 
@@ -262,6 +301,15 @@ export async function providerRoutes(fastify: FastifyInstance) {
         data: { path: req.body.path || '/chat/completions' }
       });
     }
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'update',
+      targetType: 'protocol',
+      targetId: protocolId,
+      detail: { providerId, data }
+    });
+
     return row;
   });
 
@@ -276,6 +324,15 @@ export async function providerRoutes(fastify: FastifyInstance) {
       where: { id: protocolId, providerId }
     });
     if (result.count === 0) return reply.status(404).send({ error: 'Protocol not found' });
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'delete',
+      targetType: 'protocol',
+      targetId: protocolId,
+      detail: { providerId }
+    });
+
     return { success: true };
   });
 }

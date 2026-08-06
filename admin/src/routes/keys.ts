@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
 import { keyVerifyCache } from '../key-cache.js';
+import { writeAudit } from '../audit.js';
 
 const prisma = new PrismaClient();
 
@@ -83,6 +84,14 @@ export async function keyRoutes(fastify: FastifyInstance) {
 
     keyVerifyCache.clear();
 
+    writeAudit({
+      actorId: req.user.id,
+      action: 'create',
+      targetType: 'key',
+      targetId: apiKey.id,
+      detail: { name: apiKey.name, userId }
+    });
+
     return {
       id: apiKey.id,
       key: rawKey,
@@ -130,7 +139,15 @@ export async function keyRoutes(fastify: FastifyInstance) {
       }
       return tx.apiKey.update({ where: { id: keyId }, data });
     });
-    
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'update',
+      targetType: 'key',
+      targetId: keyId,
+      detail: { data }
+    });
+
     return updated;
   });
 
@@ -153,6 +170,14 @@ export async function keyRoutes(fastify: FastifyInstance) {
     await prisma.apiKey.update({
       where: { id: keyId },
       data: { keyHash: hashKey(rawKey) }
+    });
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'regenerate',
+      targetType: 'key',
+      targetId: keyId,
+      detail: { name: key.name }
     });
 
     return {
@@ -180,6 +205,15 @@ export async function keyRoutes(fastify: FastifyInstance) {
 
     keyVerifyCache.clear();
     await prisma.apiKey.delete({ where: { id: keyId } });
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'delete',
+      targetType: 'key',
+      targetId: keyId,
+      detail: { name: key.name }
+    });
+
     return { success: true };
   });
 
@@ -200,8 +234,10 @@ export async function keyRoutes(fastify: FastifyInstance) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
 
-    const [total, todayUsage, monthlyModels] = await Promise.all([
+    const [total, todayUsage, monthlyModels, trendRows] = await Promise.all([
       prisma.usageRecord.aggregate({
         where: { apiKeyId: keyId },
         _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
@@ -218,7 +254,18 @@ export async function keyRoutes(fastify: FastifyInstance) {
         _sum: { tokensIn: true, tokensOut: true, cachedTokens: true, cost: true },
         orderBy: { _sum: { cost: 'desc' } },
         take: 10
-      })
+      }),
+      prisma.$queryRaw<Array<{ day: Date; tokensIn: bigint; tokensOut: bigint; cachedTokens: bigint; cost: number }>>`
+        SELECT date_trunc('day', "createdAt") AS day,
+               COALESCE(SUM("tokensIn"), 0)::int AS "tokensIn",
+               COALESCE(SUM("tokensOut"), 0)::int AS "tokensOut",
+               COALESCE(SUM("cachedTokens"), 0)::int AS "cachedTokens",
+               COALESCE(SUM("cost"), 0) AS cost
+        FROM "UsageRecord"
+        WHERE "apiKeyId" = ${keyId} AND "createdAt" >= ${sevenDaysAgo}
+        GROUP BY date_trunc('day', "createdAt")
+        ORDER BY day ASC
+      `
     ]);
 
     const shape = (u: { _count: number; _sum: { tokensIn: number | null; tokensOut: number | null; cachedTokens: number | null; cost: unknown } }) => ({
@@ -229,11 +276,31 @@ export async function keyRoutes(fastify: FastifyInstance) {
       cost: Number(u._sum.cost || 0)
     });
 
+    const trendByDay = new Map<string, { tokensIn: number; tokensOut: number; cachedTokens: number; cost: number }>();
+    for (const r of trendRows) {
+      const day = r.day.toISOString().slice(0, 10);
+      trendByDay.set(day, {
+        tokensIn: Number(r.tokensIn || 0),
+        tokensOut: Number(r.tokensOut || 0),
+        cachedTokens: Number(r.cachedTokens || 0),
+        cost: Number(r.cost || 0)
+      });
+    }
+    const trend: Array<{ date: string; tokensIn: number; tokensOut: number; cachedTokens: number; cost: number }> = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(sevenDaysAgo);
+      d.setDate(sevenDaysAgo.getDate() + i);
+      const date = d.toISOString().slice(0, 10);
+      const row = trendByDay.get(date);
+      trend.push(row ? { date, ...row } : { date, tokensIn: 0, tokensOut: 0, cachedTokens: 0, cost: 0 });
+    }
+
     return {
       keyId,
       name: key.name,
       total: shape(total),
       today: shape(todayUsage),
+      trend,
       monthlyModels: monthlyModels.map(m => ({
         model: m.model,
         tokensIn: m._sum.tokensIn || 0,

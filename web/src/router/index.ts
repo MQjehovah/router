@@ -47,6 +47,12 @@ const routes: RouteRecordRaw[] = [
         path: 'billing',
         name: 'Billing',
         component: () => import('../views/Billing.vue')
+      },
+      {
+        path: 'audit',
+        name: 'Audit',
+        component: () => import('../views/Audit.vue'),
+        meta: { admin: true }
       }
     ]
   }

@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
+import { writeAudit } from '../audit.js';
 
 const prisma = new PrismaClient();
 
@@ -59,6 +60,14 @@ export async function billingRoutes(fastify: FastifyInstance) {
         balance: user.balance,
         description: req.body.description || 'Balance recharge'
       }
+    });
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'recharge',
+      targetType: 'transaction',
+      targetId: req.user.id,
+      detail: { amount }
     });
 
     return { success: true, balance: user.balance };

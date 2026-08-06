@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
+import { writeAudit } from '../audit.js';
 
 const prisma = new PrismaClient();
 
@@ -15,13 +16,17 @@ export async function authRoutes(fastify: FastifyInstance) {
     
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
+      writeAudit({ actorId: null, action: 'login_failed', targetType: 'auth', targetId: email });
       return reply.status(401).send({ error: 'Invalid credentials' });
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
+      writeAudit({ actorId: user.id, action: 'login_failed', targetType: 'auth', targetId: email });
       return reply.status(401).send({ error: 'Invalid credentials' });
     }
+
+    writeAudit({ actorId: user.id, action: 'login', targetType: 'auth', targetId: email });
 
     const token = fastify.jwt.sign({
       id: user.id,
@@ -81,6 +86,8 @@ export async function authRoutes(fastify: FastifyInstance) {
       where: { id: user.id },
       data: { passwordHash }
     });
+
+    writeAudit({ actorId: user.id, action: 'change_password', targetType: 'user', targetId: user.id });
 
     return { success: true };
   });

@@ -186,6 +186,12 @@
             </div>
           </div>
 
+          <div class="stats-trend">
+            <div class="stats-group-title">近 7 天趋势</div>
+            <v-chart v-if="statsData.trend.length" :option="trendOption" autoresize style="height: 220px" />
+            <div v-else class="stats-empty">近 7 天暂无使用记录</div>
+          </div>
+
           <div class="stats-models">
             <div class="stats-group-title">本月模型分布</div>
             <el-table v-if="statsData.monthlyModels.length" :data="statsData.monthlyModels" size="small">
@@ -232,9 +238,16 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { use } from 'echarts/core';
+import { CanvasRenderer } from 'echarts/renderers';
+import { LineChart, BarChart } from 'echarts/charts';
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components';
+import VChart from 'vue-echarts';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import { Plus, Search, Refresh, Edit, Delete, CopyDocument, RefreshRight, DataAnalysis } from '@element-plus/icons-vue';
 import api from '../api';
+
+use([CanvasRenderer, LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent]);
 
 const keys = ref<any[]>([]);
 const models = ref<any[]>([]);
@@ -254,6 +267,26 @@ const statsOpen = ref(false);
 const statsLoading = ref(false);
 const statsTitle = ref('');
 const statsData = ref<any>(null);
+
+const trendOption = computed(() => {
+  const t = statsData.value?.trend || [];
+  const dates = t.map((r: any) => r.date.slice(5));
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['输入', '输出', '费用'], top: 0 },
+    grid: { left: 52, right: 60, top: 32, bottom: 24 },
+    xAxis: { type: 'category', data: dates },
+    yAxis: [
+      { type: 'value', name: 'Token', nameTextStyle: { fontSize: 11 } },
+      { type: 'value', name: '费用', nameTextStyle: { fontSize: 11 }, axisLabel: { formatter: '${value}' } }
+    ],
+    series: [
+      { name: '输入', type: 'bar', barMaxWidth: 14, data: t.map((r: any) => r.tokensIn) },
+      { name: '输出', type: 'bar', barMaxWidth: 14, data: t.map((r: any) => r.tokensOut) },
+      { name: '费用', type: 'line', yAxisIndex: 1, smooth: true, data: t.map((r: any) => Number(r.cost).toFixed(4)) }
+    ]
+  };
+});
 
 const createRef = ref<FormInstance>();
 const form = ref({ name: '', dailyQuota: 100000, monthlyQuota: 3000000, rateLimit: 60, modelIds: [] as number[] });
@@ -527,6 +560,9 @@ onMounted(loadKeys);
   font-weight: 600;
 }
 .stats-models {
+  margin-top: 16px;
+}
+.stats-trend {
   margin-top: 16px;
 }
 .model-tag {

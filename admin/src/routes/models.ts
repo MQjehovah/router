@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
+import { writeAudit } from '../audit.js';
 
 const prisma = new PrismaClient();
 
@@ -82,6 +83,15 @@ export async function modelRoutes(fastify: FastifyInstance) {
         cachePrice: req.body.cachePrice ?? 0
       }
     });
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'create',
+      targetType: 'model',
+      targetId: model.id,
+      detail: { name: model.name, providerId: model.providerId }
+    });
+
     return serializeModel(model);
   });
 
@@ -112,6 +122,15 @@ export async function modelRoutes(fastify: FastifyInstance) {
     if (typeof req.body.cachePrice === 'number') data.cachePrice = req.body.cachePrice;
 
     const model = await prisma.model.update({ where: { id: modelId }, data });
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'update',
+      targetType: 'model',
+      targetId: modelId,
+      detail: { data }
+    });
+
     return serializeModel(model);
   });
 
@@ -123,8 +142,21 @@ export async function modelRoutes(fastify: FastifyInstance) {
     }
 
     const modelId = parseInt(req.params.id);
+    const model = await prisma.model.findUnique({ where: { id: modelId } });
+    if (!model) {
+      return reply.status(404).send({ error: 'Model not found' });
+    }
     await prisma.apiKeyAllowedModel.deleteMany({ where: { modelId } });
     await prisma.model.delete({ where: { id: modelId } });
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'delete',
+      targetType: 'model',
+      targetId: modelId,
+      detail: { name: model.name }
+    });
+
     return { success: true };
   });
 }

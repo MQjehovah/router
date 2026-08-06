@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
+import { writeAudit } from '../audit.js';
 
 const prisma = new PrismaClient();
 
@@ -52,7 +53,15 @@ export async function userRoutes(fastify: FastifyInstance) {
       data: { email, passwordHash, name, role },
       select: { id: true, email: true, name: true, role: true, createdAt: true }
     });
-    
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'create',
+      targetType: 'user',
+      targetId: user.id,
+      detail: { email: user.email, name: user.name, role: user.role }
+    });
+
     return user;
   });
 
@@ -77,7 +86,15 @@ export async function userRoutes(fastify: FastifyInstance) {
       data,
       select: { id: true, email: true, name: true, role: true, balance: true }
     });
-    
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'update',
+      targetType: 'user',
+      targetId: userId,
+      detail: { data }
+    });
+
     return user;
   });
 
@@ -90,6 +107,14 @@ export async function userRoutes(fastify: FastifyInstance) {
 
     const userId = parseInt(req.params.id);
     await prisma.user.delete({ where: { id: userId } });
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'delete',
+      targetType: 'user',
+      targetId: userId
+    });
+
     return { success: true };
   });
 }
