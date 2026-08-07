@@ -9,7 +9,8 @@ import { responsesRoutes } from './routes/responses.js';
 import { messagesRoutes } from './routes/messages.js';
 
 export async function buildApp(opts: FastifyServerOptions = {}) {
-  const fastify = Fastify(opts);
+  const bodyLimitMb = Number(process.env.BODY_LIMIT_MB) || 64;
+  const fastify = Fastify({ ...opts, bodyLimit: bodyLimitMb * 1024 * 1024 });
 
   await fastify.register(cors, { origin: true, credentials: true });
 
