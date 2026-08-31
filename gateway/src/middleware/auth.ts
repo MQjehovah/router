@@ -9,6 +9,10 @@ export interface AuthData {
   userBalance: number;
   todayTokens: number;
   monthTokens: number;
+  modelDailyQuota?: number;
+  modelMonthlyQuota?: number;
+  modelTodayTokens?: number;
+  modelMonthTokens?: number;
 }
 
 export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
@@ -33,13 +37,14 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
   const secret = process.env.INTERNAL_SECRET || '';
 
   try {
+    const body = (req.body as any) || {};
     const response = await fetch(`${adminUrl}/internal/keys/verify`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Internal-Secret': secret
       },
-      body: JSON.stringify({ apiKey })
+      body: JSON.stringify({ apiKey, model: typeof body.model === 'string' ? body.model : undefined })
     });
 
     if (!response.ok) {

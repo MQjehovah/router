@@ -93,7 +93,7 @@
     </section>
 
     <!-- create -->
-    <el-dialog v-model="createOpen" title="创建 API Key" width="460px" destroy-on-close>
+    <el-dialog v-model="createOpen" title="创建 API Key" width="720px" destroy-on-close>
       <el-form ref="createRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item label="名称" prop="name">
           <el-input v-model="form.name" placeholder="例如：生产环境" maxlength="40" show-word-limit />
@@ -108,11 +108,32 @@
           <el-input-number v-model="form.rateLimit" :min="1" :max="10000" controls-position="right" style="width: 100%" />
           <div class="field-hint">每分钟最多请求次数</div>
         </el-form-item>
-        <el-form-item label="可用模型">
-          <el-select v-model="form.modelIds" multiple collapse-tags collapse-tags-tooltip placeholder="不选则默认全部启用模型" style="width: 100%">
-            <el-option v-for="m in models" :key="m.id" :label="m.name" :value="m.id" />
-          </el-select>
-          <div class="field-hint">留空 = 允许该 Key 使用所有启用中的模型</div>
+        <el-form-item label="模型配额">
+          <div class="model-quota">
+            <el-table :data="modelQuotaRows" size="small" max-height="260">
+              <el-table-column width="44">
+                <template #default="{ row }">
+                  <el-checkbox v-model="row.enabled" />
+                </template>
+              </el-table-column>
+              <el-table-column label="模型" min-width="140">
+                <template #default="{ row }">
+                  <code class="model-name font-mono">{{ row.name }}</code>
+                </template>
+              </el-table-column>
+              <el-table-column label="日配额" width="120">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.dailyQuota" :min="0" :step="1000" :controls="false" :disabled="!row.enabled" size="small" style="width: 100%" />
+                </template>
+              </el-table-column>
+              <el-table-column label="月配额" width="120">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.monthlyQuota" :min="0" :step="10000" :controls="false" :disabled="!row.enabled" size="small" style="width: 100%" />
+                </template>
+              </el-table-column>
+            </el-table>
+            <div class="field-hint">不勾选 = 允许全部模型；勾选后仅勾选模型可用。配额 0 表示不限</div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -122,7 +143,7 @@
     </el-dialog>
 
     <!-- edit -->
-    <el-dialog v-model="editOpen" title="编辑 API Key" width="460px" destroy-on-close>
+    <el-dialog v-model="editOpen" title="编辑 API Key" width="720px" destroy-on-close>
       <el-form :model="editForm" label-width="90px">
         <el-form-item label="名称">
           <el-input v-model="editForm.name" maxlength="40" />
@@ -142,10 +163,32 @@
         <el-form-item label="速率限制">
           <el-input-number v-model="editForm.rateLimit" :min="1" controls-position="right" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="可用模型">
-          <el-select v-model="editForm.modelIds" multiple collapse-tags collapse-tags-tooltip placeholder="不选则默认全部启用模型" style="width: 100%">
-            <el-option v-for="m in models" :key="m.id" :label="m.name" :value="m.id" />
-          </el-select>
+        <el-form-item label="模型配额">
+          <div class="model-quota">
+            <el-table :data="modelQuotaRows" size="small" max-height="260">
+              <el-table-column width="44">
+                <template #default="{ row }">
+                  <el-checkbox v-model="row.enabled" />
+                </template>
+              </el-table-column>
+              <el-table-column label="模型" min-width="140">
+                <template #default="{ row }">
+                  <code class="model-name font-mono">{{ row.name }}</code>
+                </template>
+              </el-table-column>
+              <el-table-column label="日配额" width="120">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.dailyQuota" :min="0" :step="1000" :controls="false" :disabled="!row.enabled" size="small" style="width: 100%" />
+                </template>
+              </el-table-column>
+              <el-table-column label="月配额" width="120">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.monthlyQuota" :min="0" :step="10000" :controls="false" :disabled="!row.enabled" size="small" style="width: 100%" />
+                </template>
+              </el-table-column>
+            </el-table>
+            <div class="field-hint">不勾选 = 允许全部模型；勾选后仅勾选模型可用。配额 0 表示不限</div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -289,8 +332,36 @@ const trendOption = computed(() => {
 });
 
 const createRef = ref<FormInstance>();
-const form = ref({ name: '', dailyQuota: 100000, monthlyQuota: 3000000, rateLimit: 60, modelIds: [] as number[] });
+const form = ref({ name: '', dailyQuota: 100000, monthlyQuota: 3000000, rateLimit: 60 });
 const editForm = ref<any>({});
+
+interface ModelQuotaRow {
+  modelId: number;
+  name: string;
+  enabled: boolean;
+  dailyQuota: number;
+  monthlyQuota: number;
+}
+
+const modelQuotaRows = ref<ModelQuotaRow[]>([]);
+
+const buildModelQuotaRows = (allowed: any[]) => {
+  const allowedMap = new Map((allowed || []).map((m: any) => [m.id, m]));
+  return models.value.map(m => {
+    const a = allowedMap.get(m.id);
+    return {
+      modelId: m.id,
+      name: m.name,
+      enabled: !!a,
+      dailyQuota: a?.dailyQuota ?? 0,
+      monthlyQuota: a?.monthlyQuota ?? 0
+    };
+  });
+};
+
+const collectAllowedModels = () => modelQuotaRows.value
+  .filter(r => r.enabled)
+  .map(r => ({ modelId: r.modelId, dailyQuota: r.dailyQuota ?? 0, monthlyQuota: r.monthlyQuota ?? 0 }));
 
 const rules: FormRules = {
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }]
@@ -320,7 +391,8 @@ const loadKeys = async () => {
 };
 
 const openCreate = () => {
-  form.value = { name: '', dailyQuota: 100000, monthlyQuota: 3000000, rateLimit: 60, modelIds: [] };
+  form.value = { name: '', dailyQuota: 100000, monthlyQuota: 3000000, rateLimit: 60 };
+  modelQuotaRows.value = buildModelQuotaRows([]);
   createOpen.value = true;
 };
 
@@ -330,7 +402,7 @@ const handleCreate = async () => {
   if (!ok) return;
   submitting.value = true;
   try {
-    const { data } = await api.post('/api/keys', form.value);
+    const { data } = await api.post('/api/keys', { ...form.value, allowedModels: collectAllowedModels() });
     revealedKey.value = data.key;
     revealTitle.value = 'API Key 创建成功';
     createOpen.value = false;
@@ -345,16 +417,21 @@ const handleCreate = async () => {
 
 const openEdit = (row: any) => {
   editForm.value = {
-    ...row,
-    modelIds: (row.allowedModels || []).map((m: any) => m.id)
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    dailyQuota: row.dailyQuota,
+    monthlyQuota: row.monthlyQuota,
+    rateLimit: row.rateLimit
   };
+  modelQuotaRows.value = buildModelQuotaRows(row.allowedModels || []);
   editOpen.value = true;
 };
 
 const handleUpdate = async () => {
   submitting.value = true;
   try {
-    await api.put(`/api/keys/${editForm.value.id}`, editForm.value);
+    await api.put(`/api/keys/${editForm.value.id}`, { ...editForm.value, allowedModels: collectAllowedModels() });
     ElMessage.success('已保存');
     editOpen.value = false;
     loadKeys();
@@ -580,5 +657,18 @@ onMounted(loadKeys);
   font-size: 12px;
   color: var(--text-3);
   padding: 8px 2px;
+}
+.model-quota {
+  width: 100%;
+}
+.model-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a5f3fc;
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
 }
 </style>

@@ -45,6 +45,9 @@ before(async () => {
     if (apiKey === 'quota-daily-key') return { keyId: 2, userId: 1, rateLimit: 60, dailyQuota: 100, monthlyQuota: 100000, userBalance: 100, todayTokens: 150, monthTokens: 200 };
     if (apiKey === 'quota-monthly-key') return { keyId: 3, userId: 1, rateLimit: 60, dailyQuota: 100000, monthlyQuota: 100, userBalance: 100, todayTokens: 50, monthTokens: 500 };
     if (apiKey === 'balance-key') return { keyId: 4, userId: 1, rateLimit: 60, dailyQuota: 100000, monthlyQuota: 3000000, userBalance: 0, todayTokens: 0, monthTokens: 0 };
+    if (apiKey === 'quota-model-daily-key') return { keyId: 5, userId: 1, rateLimit: 60, dailyQuota: 100000, monthlyQuota: 100000, userBalance: 100, todayTokens: 0, monthTokens: 0, modelDailyQuota: 100, modelMonthlyQuota: 100000, modelTodayTokens: 150, modelMonthTokens: 150 };
+    if (apiKey === 'quota-model-monthly-key') return { keyId: 6, userId: 1, rateLimit: 60, dailyQuota: 100000, monthlyQuota: 100000, userBalance: 100, todayTokens: 0, monthTokens: 0, modelDailyQuota: 100000, modelMonthlyQuota: 100, modelTodayTokens: 50, modelMonthTokens: 500 };
+    if (apiKey === 'quota-model-ok-key') return { keyId: 7, userId: 1, rateLimit: 60, dailyQuota: 100000, monthlyQuota: 100000, userBalance: 100, todayTokens: 0, monthTokens: 0, modelDailyQuota: 100, modelMonthlyQuota: 100, modelTodayTokens: 50, modelMonthTokens: 50 };
     return { keyId: 1, userId: 1, rateLimit: 60, dailyQuota: 100000, monthlyQuota: 3000000, userBalance: 100, todayTokens: 0, monthTokens: 0 };
   });
   admin.post('/internal/keys/models', async (req, reply) => {
@@ -231,6 +234,35 @@ test('POST /v1/responses: insufficient balance returns 402', async () => {
   });
   assert.equal(res.statusCode, 402);
   assert.equal(res.json().error.code, 'insufficient_balance');
+});
+
+test('POST /v1/responses: daily model quota exceeded returns 429', async () => {
+  const res = await gateway.inject({
+    method: 'POST', url: '/v1/responses',
+    headers: { authorization: 'Bearer quota-model-daily-key' },
+    payload: { model: 'deepseek-chat', input: [] }
+  });
+  assert.equal(res.statusCode, 429);
+  assert.equal(res.json().error.code, 'daily_model_quota_exceeded');
+});
+
+test('POST /v1/responses: monthly model quota exceeded returns 429', async () => {
+  const res = await gateway.inject({
+    method: 'POST', url: '/v1/responses',
+    headers: { authorization: 'Bearer quota-model-monthly-key' },
+    payload: { model: 'deepseek-chat', input: [] }
+  });
+  assert.equal(res.statusCode, 429);
+  assert.equal(res.json().error.code, 'monthly_model_quota_exceeded');
+});
+
+test('POST /v1/responses: model quota not exceeded passes through', async () => {
+  const res = await gateway.inject({
+    method: 'POST', url: '/v1/responses',
+    headers: { authorization: 'Bearer quota-model-ok-key' },
+    payload: { model: 'deepseek-chat', input: [] }
+  });
+  assert.equal(res.statusCode, 200);
 });
 
 test('GET /v1/models: returns only granted models for a key with grants', async () => {

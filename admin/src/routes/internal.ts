@@ -26,6 +26,7 @@ function authTypeFor(type: string): string {
 
 interface VerifyBody {
   apiKey: string;
+  model?: string;
 }
 
 interface ReportBody {
@@ -102,6 +103,36 @@ export async function internalRoutes(fastify: FastifyInstance) {
     const sumTokens = (u: { _sum: { tokensIn: number | null; tokensOut: number | null; cachedTokens: number | null } }) =>
       (u._sum.tokensIn || 0) + (u._sum.tokensOut || 0) + (u._sum.cachedTokens || 0);
 
+    let modelDailyQuota = 0;
+    let modelMonthlyQuota = 0;
+    let modelTodayTokens = 0;
+    let modelMonthTokens = 0;
+
+    if (req.body.model) {
+      const model = await prisma.model.findUnique({ where: { name: req.body.model } });
+      if (model) {
+        const grant = await prisma.apiKeyAllowedModel.findUnique({
+          where: { apiKeyId_modelId: { apiKeyId: result.keyId, modelId: model.id } }
+        });
+        if (grant) {
+          modelDailyQuota = Number(grant.dailyQuota);
+          modelMonthlyQuota = Number(grant.monthlyQuota);
+          const [mToday, mMonth] = await Promise.all([
+            prisma.usageRecord.aggregate({
+              where: { apiKeyId: result.keyId, model: req.body.model, createdAt: { gte: today } },
+              _sum: { tokensIn: true, tokensOut: true, cachedTokens: true }
+            }),
+            prisma.usageRecord.aggregate({
+              where: { apiKeyId: result.keyId, model: req.body.model, createdAt: { gte: monthStart } },
+              _sum: { tokensIn: true, tokensOut: true, cachedTokens: true }
+            })
+          ]);
+          modelTodayTokens = sumTokens(mToday);
+          modelMonthTokens = sumTokens(mMonth);
+        }
+      }
+    }
+
     return {
       keyId: result.keyId,
       userId: result.userId,
@@ -110,7 +141,11 @@ export async function internalRoutes(fastify: FastifyInstance) {
       monthlyQuota: result.monthlyQuota,
       userBalance: Number(user?.balance ?? 0),
       todayTokens: sumTokens(todayUsage),
-      monthTokens: sumTokens(monthUsage)
+      monthTokens: sumTokens(monthUsage),
+      modelDailyQuota,
+      modelMonthlyQuota,
+      modelTodayTokens,
+      modelMonthTokens
     };
   });
 

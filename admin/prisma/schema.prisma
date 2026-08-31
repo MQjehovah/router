@@ -95,10 +95,13 @@ enum ApiKeyStatus {
 }
 
 model ApiKeyAllowedModel {
-  apiKeyId Int
-  apiKey   ApiKey @relation(fields: [apiKeyId], references: [id])
-  modelId  Int
-  model    Model  @relation(fields: [modelId], references: [id])
+  apiKeyId     Int
+  apiKey       ApiKey @relation(fields: [apiKeyId], references: [id])
+  modelId      Int
+  model        Model  @relation(fields: [modelId], references: [id])
+  /// 按模型的日/月 token 配额，0 = 不限
+  dailyQuota   BigInt @default(0)
+  monthlyQuota BigInt @default(0)
 
   @@id([apiKeyId, modelId])
 }

@@ -28,6 +28,29 @@ export async function quotaCheck(req: FastifyRequest, reply: FastifyReply) {
     });
   }
 
+  const modelMonthTokens = authData.modelMonthTokens ?? 0;
+  const modelTodayTokens = authData.modelTodayTokens ?? 0;
+
+  if ((authData.modelMonthlyQuota ?? 0) > 0 && modelMonthTokens >= authData.modelMonthlyQuota!) {
+    return reply.status(429).send({
+      error: {
+        message: `Monthly model quota exceeded (${modelMonthTokens} / ${authData.modelMonthlyQuota} tokens)`,
+        type: 'rate_limit_error',
+        code: 'monthly_model_quota_exceeded'
+      }
+    });
+  }
+
+  if ((authData.modelDailyQuota ?? 0) > 0 && modelTodayTokens >= authData.modelDailyQuota!) {
+    return reply.status(429).send({
+      error: {
+        message: `Daily model quota exceeded (${modelTodayTokens} / ${authData.modelDailyQuota} tokens)`,
+        type: 'rate_limit_error',
+        code: 'daily_model_quota_exceeded'
+      }
+    });
+  }
+
   if ((authData.userBalance ?? 0) <= 0) {
     return reply.status(402).send({
       error: {

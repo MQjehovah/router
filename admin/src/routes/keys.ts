@@ -7,6 +7,12 @@ import { writeAudit } from '../audit.js';
 
 const prisma = new PrismaClient();
 
+interface AllowedModelInput {
+  modelId: number;
+  dailyQuota?: number;
+  monthlyQuota?: number;
+}
+
 interface CreateKeyBody {
   name: string;
   userId?: number;
@@ -14,7 +20,7 @@ interface CreateKeyBody {
   dailyQuota?: number;
   monthlyQuota?: number;
   expiresAt?: string;
-  modelIds?: number[];
+  allowedModels?: AllowedModelInput[];
 }
 
 interface UpdateKeyBody {
@@ -24,7 +30,7 @@ interface UpdateKeyBody {
   dailyQuota?: number;
   monthlyQuota?: number;
   expiresAt?: string;
-  modelIds?: number[];
+  allowedModels?: AllowedModelInput[];
 }
 
 function generateApiKey(): string {
@@ -55,7 +61,13 @@ export async function keyRoutes(fastify: FastifyInstance) {
       keyHash: k.keyHash.substring(0, 8) + '****',
       dailyQuota: Number(k.dailyQuota),
       monthlyQuota: Number(k.monthlyQuota),
-      allowedModels: k.allowedModels.map(a => a.model),
+      allowedModels: k.allowedModels.map(a => ({
+        id: a.model.id,
+        name: a.model.name,
+        status: a.model.status,
+        dailyQuota: Number(a.dailyQuota),
+        monthlyQuota: Number(a.monthlyQuota)
+      })),
       createdAt: k.createdAt.toISOString(),
       expiresAt: k.expiresAt?.toISOString()
     }));
@@ -78,8 +90,8 @@ export async function keyRoutes(fastify: FastifyInstance) {
         dailyQuota: req.body.dailyQuota || 100000,
         monthlyQuota: req.body.monthlyQuota || 3000000,
         expiresAt: req.body.expiresAt ? new Date(req.body.expiresAt) : null,
-        allowedModels: req.body.modelIds?.length
-          ? { create: req.body.modelIds.map(modelId => ({ modelId })) }
+        allowedModels: req.body.allowedModels?.length
+          ? { create: req.body.allowedModels.map(m => ({ modelId: m.modelId, dailyQuota: m.dailyQuota ?? 0, monthlyQuota: m.monthlyQuota ?? 0 })) }
           : undefined
       }
     });
@@ -131,11 +143,16 @@ export async function keyRoutes(fastify: FastifyInstance) {
     if (req.body.expiresAt) data.expiresAt = new Date(req.body.expiresAt);
 
     const updated = await prisma.$transaction(async (tx) => {
-      if (req.body.modelIds) {
+      if (req.body.allowedModels) {
         await tx.apiKeyAllowedModel.deleteMany({ where: { apiKeyId: keyId } });
-        if (req.body.modelIds.length) {
+        if (req.body.allowedModels.length) {
           await tx.apiKeyAllowedModel.createMany({
-            data: req.body.modelIds.map(modelId => ({ apiKeyId: keyId, modelId }))
+            data: req.body.allowedModels.map(m => ({
+              apiKeyId: keyId,
+              modelId: m.modelId,
+              dailyQuota: m.dailyQuota ?? 0,
+              monthlyQuota: m.monthlyQuota ?? 0
+            }))
           });
         }
       }
