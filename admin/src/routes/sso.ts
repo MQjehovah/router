@@ -55,12 +55,15 @@ export async function ssoRoutes(fastify: FastifyInstance) {
     let userCreated = false;
     if (!user) {
       const randomPassword = crypto.randomBytes(32).toString('hex');
+      // 新开通员工给初始额度(内部免手动开号即用);额度用尽后由管理员充值
+      const initialBalance = Number(process.env.SSO_INITIAL_BALANCE ?? 1000000);
       user = await prisma.user.create({
         data: {
           employeeId,
           email,
           name,
           role: 'USER',
+          balance: initialBalance,
           passwordHash: await bcrypt.hash(randomPassword, 10)
         }
       });
