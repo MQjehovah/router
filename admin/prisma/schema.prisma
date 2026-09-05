@@ -9,7 +9,9 @@ datasource db {
 
 model User {
   id           Int      @id @default(autoincrement())
-  email        String   @unique
+  email        String?  @unique
+  /// 工号，SSO 自动开通用户的唯一标识；本地管理员账号可为空
+  employeeId   String?  @unique
   passwordHash String
   name         String
   role         Role     @default(USER)
@@ -76,6 +78,8 @@ model ApiKey {
   userId       Int
   user         User         @relation(fields: [userId], references: [id])
   keyHash      String       @unique
+  /// 明文 key 的 AES 加密副本，仅供 SSO 交换端点重复发放，永不通过普通接口返回
+  keyEncrypted String?
   name         String
   status       ApiKeyStatus @default(ACTIVE)
   rateLimit    Int          @default(60)

@@ -1,20 +1,11 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { keyVerifyCache, KeyVerifyResult } from '../key-cache.js';
 import { effectiveProtocolPath, DEFAULT_PROTOCOL_PATHS } from '../protocols.js';
+import { decrypt } from '../crypto-utils.js';
 
 const prisma = new PrismaClient();
-
-function decrypt(text: string, key: string): string {
-  const [ivHex, encrypted] = text.split(':');
-  const iv = Buffer.from(ivHex, 'hex');
-  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(key.slice(0, 32)), iv);
-  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
-}
 
 function authTypeFor(type: string): string {
   switch (type) {
