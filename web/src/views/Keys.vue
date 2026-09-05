@@ -99,10 +99,12 @@
           <el-input v-model="form.name" placeholder="例如：生产环境" maxlength="40" show-word-limit />
         </el-form-item>
         <el-form-item label="日配额" prop="dailyQuota">
-          <el-input-number v-model="form.dailyQuota" :min="0" :step="1000" controls-position="right" style="width: 100%" />
+          <TokenInput v-model="form.dailyQuota" />
+          <div class="field-hint">单位：token，0 表示不限</div>
         </el-form-item>
         <el-form-item label="月配额" prop="monthlyQuota">
-          <el-input-number v-model="form.monthlyQuota" :min="0" :step="10000" controls-position="right" style="width: 100%" />
+          <TokenInput v-model="form.monthlyQuota" />
+          <div class="field-hint">单位：token，0 表示不限</div>
         </el-form-item>
         <el-form-item label="速率限制" prop="rateLimit">
           <el-input-number v-model="form.rateLimit" :min="1" :max="10000" controls-position="right" style="width: 100%" />
@@ -110,29 +112,36 @@
         </el-form-item>
         <el-form-item label="模型配额">
           <div class="model-quota">
-            <el-table :data="modelQuotaRows" size="small" max-height="260">
-              <el-table-column width="44">
-                <template #default="{ row }">
-                  <el-checkbox v-model="row.enabled" />
-                </template>
-              </el-table-column>
-              <el-table-column label="模型" min-width="140">
+            <div class="model-quota-add">
+              <el-select v-model="newModelId" placeholder="选择要添加的模型" filterable clearable class="model-quota-select">
+                <el-option v-for="m in availableModels" :key="m.id" :label="m.name" :value="m.id" />
+              </el-select>
+              <el-button type="primary" :icon="Plus" @click="addModel">添加</el-button>
+            </div>
+            <el-table v-if="modelQuotaRows.length" :data="modelQuotaRows" size="small" max-height="260">
+              <el-table-column label="模型" min-width="150">
                 <template #default="{ row }">
                   <code class="model-name font-mono">{{ row.name }}</code>
                 </template>
               </el-table-column>
-              <el-table-column label="日配额" width="120">
+              <el-table-column label="日配额" width="130">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.dailyQuota" :min="0" :step="1000" :controls="false" :disabled="!row.enabled" size="small" style="width: 100%" />
+                  <TokenInput v-model="row.dailyQuota" size="small" />
                 </template>
               </el-table-column>
-              <el-table-column label="月配额" width="120">
+              <el-table-column label="月配额" width="130">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.monthlyQuota" :min="0" :step="10000" :controls="false" :disabled="!row.enabled" size="small" style="width: 100%" />
+                  <TokenInput v-model="row.monthlyQuota" size="small" />
+                </template>
+              </el-table-column>
+              <el-table-column width="56" align="center">
+                <template #default="{ row }">
+                  <el-button text type="danger" :icon="Delete" size="small" @click="removeModel(row)" />
                 </template>
               </el-table-column>
             </el-table>
-            <div class="field-hint">不勾选 = 允许全部模型；勾选后仅勾选模型可用。配额 0 表示不限</div>
+            <div v-else class="model-quota-empty">未添加模型 = 允许全部模型</div>
+            <div class="field-hint">未添加任何模型时允许全部模型；添加后仅允许列表中的模型。配额单位为 token，0 表示不限</div>
           </div>
         </el-form-item>
       </el-form>
@@ -155,39 +164,48 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item label="日配额">
-          <el-input-number v-model="editForm.dailyQuota" :min="0" :step="1000" controls-position="right" style="width: 100%" />
+          <TokenInput v-model="editForm.dailyQuota" />
+          <div class="field-hint">单位：token，0 表示不限</div>
         </el-form-item>
         <el-form-item label="月配额">
-          <el-input-number v-model="editForm.monthlyQuota" :min="0" :step="10000" controls-position="right" style="width: 100%" />
+          <TokenInput v-model="editForm.monthlyQuota" />
+          <div class="field-hint">单位：token，0 表示不限</div>
         </el-form-item>
         <el-form-item label="速率限制">
           <el-input-number v-model="editForm.rateLimit" :min="1" controls-position="right" style="width: 100%" />
         </el-form-item>
         <el-form-item label="模型配额">
           <div class="model-quota">
-            <el-table :data="modelQuotaRows" size="small" max-height="260">
-              <el-table-column width="44">
-                <template #default="{ row }">
-                  <el-checkbox v-model="row.enabled" />
-                </template>
-              </el-table-column>
-              <el-table-column label="模型" min-width="140">
+            <div class="model-quota-add">
+              <el-select v-model="newModelId" placeholder="选择要添加的模型" filterable clearable class="model-quota-select">
+                <el-option v-for="m in availableModels" :key="m.id" :label="m.name" :value="m.id" />
+              </el-select>
+              <el-button type="primary" :icon="Plus" @click="addModel">添加</el-button>
+            </div>
+            <el-table v-if="modelQuotaRows.length" :data="modelQuotaRows" size="small" max-height="260">
+              <el-table-column label="模型" min-width="150">
                 <template #default="{ row }">
                   <code class="model-name font-mono">{{ row.name }}</code>
                 </template>
               </el-table-column>
-              <el-table-column label="日配额" width="120">
+              <el-table-column label="日配额" width="130">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.dailyQuota" :min="0" :step="1000" :controls="false" :disabled="!row.enabled" size="small" style="width: 100%" />
+                  <TokenInput v-model="row.dailyQuota" size="small" />
                 </template>
               </el-table-column>
-              <el-table-column label="月配额" width="120">
+              <el-table-column label="月配额" width="130">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.monthlyQuota" :min="0" :step="10000" :controls="false" :disabled="!row.enabled" size="small" style="width: 100%" />
+                  <TokenInput v-model="row.monthlyQuota" size="small" />
+                </template>
+              </el-table-column>
+              <el-table-column width="56" align="center">
+                <template #default="{ row }">
+                  <el-button text type="danger" :icon="Delete" size="small" @click="removeModel(row)" />
                 </template>
               </el-table-column>
             </el-table>
-            <div class="field-hint">不勾选 = 允许全部模型；勾选后仅勾选模型可用。配额 0 表示不限</div>
+            <div v-else class="model-quota-empty">未添加模型 = 允许全部模型</div>
+            <div class="field-hint">未添加任何模型时允许全部模型；添加后仅允许列表中的模型。配额单位为 token，0 表示不限</div>
           </div>
         </el-form-item>
       </el-form>
@@ -288,6 +306,7 @@ import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/compon
 import VChart from 'vue-echarts';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
 import { Plus, Search, Refresh, Edit, Delete, CopyDocument, RefreshRight, DataAnalysis } from '@element-plus/icons-vue';
+import TokenInput from '../components/TokenInput.vue';
 import api from '../api';
 
 use([CanvasRenderer, LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent]);
@@ -338,30 +357,43 @@ const editForm = ref<any>({});
 interface ModelQuotaRow {
   modelId: number;
   name: string;
-  enabled: boolean;
   dailyQuota: number;
   monthlyQuota: number;
 }
 
 const modelQuotaRows = ref<ModelQuotaRow[]>([]);
+const newModelId = ref<number | null>(null);
 
-const buildModelQuotaRows = (allowed: any[]) => {
-  const allowedMap = new Map((allowed || []).map((m: any) => [m.id, m]));
-  return models.value.map(m => {
-    const a = allowedMap.get(m.id);
-    return {
-      modelId: m.id,
-      name: m.name,
-      enabled: !!a,
-      dailyQuota: a?.dailyQuota ?? 0,
-      monthlyQuota: a?.monthlyQuota ?? 0
-    };
-  });
+const availableModels = computed(() =>
+  models.value.filter(m => !modelQuotaRows.value.some(r => r.modelId === m.id))
+);
+
+const buildModelQuotaRows = (allowed: any[]) =>
+  (allowed || []).map((m: any) => ({
+    modelId: m.id,
+    name: m.name,
+    dailyQuota: m.dailyQuota ?? 0,
+    monthlyQuota: m.monthlyQuota ?? 0
+  }));
+
+const addModel = () => {
+  const id = newModelId.value;
+  if (id == null) {
+    ElMessage.warning('请选择模型');
+    return;
+  }
+  const m = models.value.find(x => x.id === id);
+  if (!m) return;
+  modelQuotaRows.value.push({ modelId: m.id, name: m.name, dailyQuota: 0, monthlyQuota: 0 });
+  newModelId.value = null;
 };
 
-const collectAllowedModels = () => modelQuotaRows.value
-  .filter(r => r.enabled)
-  .map(r => ({ modelId: r.modelId, dailyQuota: r.dailyQuota ?? 0, monthlyQuota: r.monthlyQuota ?? 0 }));
+const removeModel = (row: ModelQuotaRow) => {
+  modelQuotaRows.value = modelQuotaRows.value.filter(r => r.modelId !== row.modelId);
+};
+
+const collectAllowedModels = () =>
+  modelQuotaRows.value.map(r => ({ modelId: r.modelId, dailyQuota: r.dailyQuota ?? 0, monthlyQuota: r.monthlyQuota ?? 0 }));
 
 const rules: FormRules = {
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }]
@@ -393,6 +425,7 @@ const loadKeys = async () => {
 const openCreate = () => {
   form.value = { name: '', dailyQuota: 100000, monthlyQuota: 3000000, rateLimit: 60 };
   modelQuotaRows.value = buildModelQuotaRows([]);
+  newModelId.value = null;
   createOpen.value = true;
 };
 
@@ -425,6 +458,7 @@ const openEdit = (row: any) => {
     rateLimit: row.rateLimit
   };
   modelQuotaRows.value = buildModelQuotaRows(row.allowedModels || []);
+  newModelId.value = null;
   editOpen.value = true;
 };
 
@@ -660,6 +694,22 @@ onMounted(loadKeys);
 }
 .model-quota {
   width: 100%;
+}
+.model-quota-add {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.model-quota-select {
+  flex: 1;
+}
+.model-quota-empty {
+  font-size: 12px;
+  color: var(--text-3);
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  margin-bottom: 4px;
 }
 .model-name {
   font-size: 12px;

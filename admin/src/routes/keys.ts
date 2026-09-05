@@ -87,8 +87,8 @@ export async function keyRoutes(fastify: FastifyInstance) {
         keyHash,
         name: req.body.name,
         rateLimit: req.body.rateLimit || 60,
-        dailyQuota: req.body.dailyQuota || 100000,
-        monthlyQuota: req.body.monthlyQuota || 3000000,
+        dailyQuota: req.body.dailyQuota ?? 100000,
+        monthlyQuota: req.body.monthlyQuota ?? 3000000,
         expiresAt: req.body.expiresAt ? new Date(req.body.expiresAt) : null,
         allowedModels: req.body.allowedModels?.length
           ? { create: req.body.allowedModels.map(m => ({ modelId: m.modelId, dailyQuota: m.dailyQuota ?? 0, monthlyQuota: m.monthlyQuota ?? 0 })) }
@@ -138,8 +138,8 @@ export async function keyRoutes(fastify: FastifyInstance) {
     if (req.body.name) data.name = req.body.name;
     if (req.body.status) data.status = req.body.status;
     if (req.body.rateLimit) data.rateLimit = req.body.rateLimit;
-    if (req.body.dailyQuota) data.dailyQuota = req.body.dailyQuota;
-    if (req.body.monthlyQuota) data.monthlyQuota = req.body.monthlyQuota;
+    if (req.body.dailyQuota !== undefined) data.dailyQuota = req.body.dailyQuota;
+    if (req.body.monthlyQuota !== undefined) data.monthlyQuota = req.body.monthlyQuota;
     if (req.body.expiresAt) data.expiresAt = new Date(req.body.expiresAt);
 
     const updated = await prisma.$transaction(async (tx) => {
