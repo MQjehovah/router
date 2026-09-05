@@ -1,4 +1,10 @@
+import { webcrypto } from 'node:crypto';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+
+// jose 依赖 Web Crypto(globalThis.crypto.subtle);node:18 默认未暴露,补全局垫片
+if (!globalThis.crypto) {
+  (globalThis as { crypto: unknown }).crypto = webcrypto;
+}
 
 interface Discovery {
   issuer: string;
