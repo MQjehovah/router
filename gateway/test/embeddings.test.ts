@@ -2,6 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import { buildApp } from '../src/app.js';
+import { estimateTokensIn } from '../src/routes/embeddings.js';
 
 const reported: any[] = [];
 let admin: Fastify.FastifyInstance;
@@ -20,17 +21,18 @@ const EMBED_NO_USAGE_CONFIG = {
   pricing: { inputPrice: 0.02, outputPrice: 0.1, cachePrice: 0 },
   providerId: 1, authType: 'bearer', apiKey: 'sk-upstream'
 };
+const EMBED_ZERO_USAGE_CONFIG = {
+  model: 'embed-zero-usage', providerType: 'OPENAI',
+  baseUrl: 'http://127.0.0.1:4007', path: '/v1/embeddings',
+  pricing: { inputPrice: 0.02, outputPrice: 0.1, cachePrice: 0 },
+  providerId: 1, authType: 'bearer', apiKey: 'sk-upstream'
+};
 const EMBED_ERROR_CONFIG = {
   model: 'embed-error', providerType: 'OPENAI',
   baseUrl: 'http://127.0.0.1:4007', path: '/v1/embeddings-error',
   pricing: { inputPrice: 0.02, outputPrice: 0.1, cachePrice: 0 },
   providerId: 1, authType: 'bearer', apiKey: 'sk-upstream'
 };
-
-function estimateTokensIn(input: string | string[]): number {
-  const inputs = Array.isArray(input) ? input : [input];
-  return Math.ceil(inputs.reduce((sum, item) => sum + item.length, 0) / 4);
-}
 
 before(async () => {
   process.env.INTERNAL_SECRET = 'test-secret';
@@ -47,6 +49,7 @@ before(async () => {
     const { model } = req.body as any;
     if (model === 'embed-usage') return EMBED_USAGE_CONFIG;
     if (model === 'embed-no-usage') return EMBED_NO_USAGE_CONFIG;
+    if (model === 'embed-zero-usage') return EMBED_ZERO_USAGE_CONFIG;
     if (model === 'embed-error') return EMBED_ERROR_CONFIG;
     return reply.status(404).send({ error: 'Model not found' });
   });
@@ -63,6 +66,14 @@ before(async () => {
         data: inputs.map((_: string, i: number) => ({ object: 'embedding', index: i, embedding: [0.1, 0.2, 0.3] })),
         model: 'embed-usage',
         usage: { prompt_tokens: 123, total_tokens: 123 }
+      };
+    }
+    if (req.body.model === 'embed-zero-usage') {
+      return {
+        object: 'list',
+        data: inputs.map((_: string, i: number) => ({ object: 'embedding', index: i, embedding: [0.1, 0.2, 0.3] })),
+        model: 'embed-zero-usage',
+        usage: { prompt_tokens: 0, total_tokens: 0 }
       };
     }
     return {
@@ -104,6 +115,22 @@ test('POST /v1/embeddings: bills by usage.prompt_tokens', async () => {
   assert.equal(usage.cachedTokens, 0);
   assert.ok(usage.cost > 0);
   assert.equal(usage.providerId, 1);
+});
+
+test('POST /v1/embeddings: usage.prompt_tokens=0 is honored, not estimated', async () => {
+  const beforeCount = reported.length;
+  const input = 'hello world';
+  const res = await gateway.inject({
+    method: 'POST', url: '/v1/embeddings',
+    headers: { authorization: 'Bearer test-key' },
+    payload: { model: 'embed-zero-usage', input }
+  });
+  assert.equal(res.statusCode, 200);
+  await new Promise(r => setTimeout(r, 50));
+  const usage = reported.slice(beforeCount).find(r => r.model === 'embed-zero-usage');
+  assert.ok(usage, 'usage should be reported');
+  assert.equal(usage.tokensIn, 0);
+  assert.equal(usage.cost, 0);
 });
 
 test('POST /v1/embeddings: no upstream usage -> estimate tokensIn by char length / 4', async () => {
