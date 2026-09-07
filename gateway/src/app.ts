@@ -7,6 +7,7 @@ import { quotaCheck } from './middleware/quota.js';
 import { chatRoutes } from './routes/chat.js';
 import { responsesRoutes } from './routes/responses.js';
 import { messagesRoutes } from './routes/messages.js';
+import { embeddingsRoutes } from './routes/embeddings.js';
 
 export async function buildApp(opts: FastifyServerOptions = {}) {
   const bodyLimitMb = Number(process.env.BODY_LIMIT_MB) || 64;
@@ -21,6 +22,7 @@ export async function buildApp(opts: FastifyServerOptions = {}) {
   await fastify.register(chatRoutes);
   await fastify.register(responsesRoutes);
   await fastify.register(messagesRoutes);
+  await fastify.register(embeddingsRoutes);
 
   fastify.get('/health', async () => ({ status: 'ok' }));
 
