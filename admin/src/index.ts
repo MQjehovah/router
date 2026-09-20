@@ -25,8 +25,28 @@ await fastify.register(cors, {
   credentials: true
 });
 
-await fastify.register(jwt, { 
-  secret: process.env.JWT_SECRET || 'default-secret'
+/** 解析 admin 会话 TTL:未设置/空串用默认 12h;纯数字按“秒”处理;非法值启动即失败 */
+function resolveAdminSessionTtl(): string {
+  const raw = (process.env.ADMIN_SESSION_TTL ?? '').trim();
+  if (!raw) return '12h';
+  if (/^\d+$/.test(raw)) {
+    const secs = Number(raw);
+    if (!Number.isFinite(secs) || secs <= 0) {
+      throw new Error(`ADMIN_SESSION_TTL 必须是正数: "${raw}"`);
+    }
+    return `${secs}s`;
+  }
+  if (!/^\d+(\.\d+)?(ms|s|m|h|d|w|y)$/i.test(raw)) {
+    throw new Error(`ADMIN_SESSION_TTL 非法: "${raw}"(示例: 43200 或 12h)`);
+  }
+  return raw;
+}
+
+const adminSessionTtl = resolveAdminSessionTtl();
+
+await fastify.register(jwt, {
+  secret: process.env.JWT_SECRET || 'default-secret',
+  sign: { expiresIn: adminSessionTtl }
 });
 
 fastify.decorate('prisma', prisma);
