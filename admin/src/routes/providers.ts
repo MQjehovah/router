@@ -3,12 +3,12 @@ import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { PROTOCOLS } from '../protocols.js';
 import { writeAudit } from '../audit.js';
-import { requireSecret } from '../env.js';
+import { encryptionKey } from '../env.js';
 
 const prisma = new PrismaClient();
 
-/** 启动即校验:生产环境缺失/弱值会让进程在模块加载时立刻失败。 */
-const ENCRYPTION_KEY = requireSecret('ENCRYPTION_KEY', process.env.ENCRYPTION_KEY);
+/** 启动即校验:生产环境缺失/弱值会让进程在模块加载时立刻失败;开发回退开发密钥。 */
+const ENCRYPTION_KEY = encryptionKey();
 
 function encrypt(text: string, key: string): string {
   const iv = crypto.randomBytes(16);

@@ -6,6 +6,7 @@ export const WEAK_VALUES = new Set([
   'dev-secret-change-me-please-32-bytes-minimum',
   'default-secret',
   'default-key',
+  'dev-only-insecure-encryption-key',
   'xzyz2022!',
   'admin123',
   '123456',
@@ -31,6 +32,19 @@ export function requireSecret(name: string, value: string | undefined): string {
   }
   console.warn(`[env] ${name} 使用默认/弱值;生产环境(APP_ENV=production)将拒绝启动`)
   return value as string
+}
+
+/** 开发态加密密钥回退:固定 32 字节,仅保证 development 下加/解密往返自洽;生产缺失/弱值一律抛错。 */
+export const DEV_ENCRYPTION_KEY = 'dev-only-insecure-encryption-key'
+
+/** 解析 ENCRYPTION_KEY:生产缺失/弱值抛错(含开发回退密钥);开发缺失/弱值时回退开发密钥并告警。 */
+export function encryptionKey(value: string | undefined = process.env.ENCRYPTION_KEY): string {
+  const normalized = (value ?? '').trim()
+  if (!isProduction() && (normalized === '' || WEAK_VALUES.has(normalized))) {
+    console.warn('[env] ENCRYPTION_KEY 未配置或为弱值, 开发环境回退到开发密钥(切勿用于生产)')
+    return DEV_ENCRYPTION_KEY
+  }
+  return requireSecret('ENCRYPTION_KEY', value)
 }
 
 /** 按逗号解析 CORS 白名单;默认仅本机(永不含 *)。 */

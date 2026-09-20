@@ -6,6 +6,7 @@ export const WEAK_VALUES = new Set([
   'dev-secret-change-me-please-32-bytes-minimum',
   'default-secret',
   'default-key',
+  'dev-only-insecure-encryption-key',
   'xzyz2022!',
   'admin123',
   '123456',

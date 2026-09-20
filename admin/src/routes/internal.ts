@@ -4,12 +4,12 @@ import { PrismaClient } from '@prisma/client';
 import { keyVerifyCache, KeyVerifyResult } from '../key-cache.js';
 import { effectiveProtocolPath, DEFAULT_PROTOCOL_PATHS } from '../protocols.js';
 import { decrypt } from '../crypto-utils.js';
-import { requireSecret } from '../env.js';
+import { encryptionKey } from '../env.js';
 
 const prisma = new PrismaClient();
 
-/** 启动即校验:生产环境缺失/弱值会让进程在模块加载时立刻失败。 */
-const ENCRYPTION_KEY = requireSecret('ENCRYPTION_KEY', process.env.ENCRYPTION_KEY);
+/** 启动即校验:生产环境缺失/弱值会让进程在模块加载时立刻失败;开发回退开发密钥。 */
+const ENCRYPTION_KEY = encryptionKey();
 
 function authTypeFor(type: string): string {
   switch (type) {
