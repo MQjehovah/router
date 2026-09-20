@@ -34,7 +34,17 @@ test('extractEmployeeId: falls back to common claim names', () => {
 });
 
 test('extractEmployeeId: returns null when no claim matches', () => {
-  assert.equal(extractEmployeeId({ sub: 'abc', email: 'a@b.c' }), null);
+  assert.equal(extractEmployeeId({ email: 'a@b.c' }), null);
+});
+
+test('extractEmployeeId: falls back to sub (SSO 工号默认在 sub)', () => {
+  assert.equal(extractEmployeeId({ sub: '10086', email: 'a@b.c' }), '10086');
+  process.env.OIDC_EMPLOYEE_ID_CLAIM = 'staff_no';
+  try {
+    assert.equal(extractEmployeeId({ staff_no: 'E001', sub: '10086' }), 'E001');
+  } finally {
+    delete process.env.OIDC_EMPLOYEE_ID_CLAIM;
+  }
 });
 
 test('extractEmployeeId: ignores empty or whitespace-only claim values', () => {

@@ -67,7 +67,8 @@ export async function verifyIdToken(idToken: string): Promise<JWTPayload> {
   return payload;
 }
 
-/// 从 payload 提取工号：优先取配置的 claim（OIDC_EMPLOYEE_ID_CLAIM），再尝试常见命名
+/// 从 payload 提取工号：优先取配置的 claim（OIDC_EMPLOYEE_ID_CLAIM），再尝试常见命名，
+/// 最后回退 sub（SSO 的 id_token 默认把工号放在 sub）
 export function extractEmployeeId(payload: JWTPayload): string | null {
   const candidates = [
     process.env.OIDC_EMPLOYEE_ID_CLAIM,
@@ -77,7 +78,8 @@ export function extractEmployeeId(payload: JWTPayload): string | null {
     'employeeId',
     'emp_no',
     'empNo',
-    'job_number'
+    'job_number',
+    'sub'
   ].filter((name): name is string => Boolean(name));
 
   for (const name of candidates) {
