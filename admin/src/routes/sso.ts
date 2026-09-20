@@ -6,8 +6,12 @@ import { keyVerifyCache } from '../key-cache.js';
 import { writeAudit } from '../audit.js';
 import { encrypt, decrypt } from '../crypto-utils.js';
 import { isOidcConfigured, verifyIdToken, extractEmployeeId } from '../oidc.js';
+import { requireSecret } from '../env.js';
 
 const prisma = new PrismaClient();
+
+/** 启动即校验:生产环境缺失/弱值会让进程在模块加载时立刻失败。 */
+const ENCRYPTION_KEY = requireSecret('ENCRYPTION_KEY', process.env.ENCRYPTION_KEY);
 
 /// SSO 自动开通的 key 统一命名，交换端点按该名字 find-or-create
 const SSO_KEY_NAME = 'sso';
@@ -78,18 +82,17 @@ export async function ssoRoutes(fastify: FastifyInstance) {
       orderBy: { id: 'desc' }
     });
 
-    const encryptionKey = process.env.ENCRYPTION_KEY || 'default-key';
     let rawKey: string;
     let keyId: number;
     let rotated = false;
 
     if (existing?.keyEncrypted) {
       keyId = existing.id;
-      rawKey = decrypt(existing.keyEncrypted, encryptionKey);
+      rawKey = decrypt(existing.keyEncrypted, ENCRYPTION_KEY);
     } else {
       rawKey = `sk-${crypto.randomBytes(32).toString('hex')}`;
       const keyHash = bcrypt.hashSync(rawKey, 10);
-      const keyEncrypted = encrypt(rawKey, encryptionKey);
+      const keyEncrypted = encrypt(rawKey, ENCRYPTION_KEY);
 
       if (existing) {
         // 旧 key 没有加密副本（历史数据），轮换后补上，旧 key 立即失效

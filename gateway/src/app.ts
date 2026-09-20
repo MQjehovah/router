@@ -1,6 +1,7 @@
 import Fastify, { FastifyServerOptions } from 'fastify';
 import cors from '@fastify/cors';
 
+import { corsOrigins } from './env.js';
 import { authenticate } from './middleware/auth.js';
 import { rateLimit } from './middleware/rate-limit.js';
 import { quotaCheck } from './middleware/quota.js';
@@ -13,7 +14,7 @@ export async function buildApp(opts: FastifyServerOptions = {}) {
   const bodyLimitMb = Number(process.env.BODY_LIMIT_MB) || 64;
   const fastify = Fastify({ ...opts, bodyLimit: bodyLimitMb * 1024 * 1024 });
 
-  await fastify.register(cors, { origin: true, credentials: true });
+  await fastify.register(cors, { origin: corsOrigins(), credentials: true });
 
   fastify.decorate('authenticate', authenticate);
   fastify.decorate('rateLimit', rateLimit);

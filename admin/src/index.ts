@@ -1,9 +1,10 @@
+import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import { PrismaClient } from '@prisma/client';
-import dotenv from 'dotenv';
 
+import { corsOrigins, requireSecret } from './env.js';
 import { authRoutes } from './routes/auth.js';
 import { userRoutes } from './routes/users.js';
 import { keyRoutes } from './routes/keys.js';
@@ -15,13 +16,11 @@ import { usageRoutes } from './routes/usage.js';
 import { billingRoutes } from './routes/billing.js';
 import { auditRoutes } from './routes/audit.js';
 
-dotenv.config();
-
 const fastify = Fastify({ logger: true });
 const prisma = new PrismaClient();
 
 await fastify.register(cors, { 
-  origin: true,
+  origin: corsOrigins(),
   credentials: true
 });
 
@@ -45,7 +44,7 @@ function resolveAdminSessionTtl(): string {
 const adminSessionTtl = resolveAdminSessionTtl();
 
 await fastify.register(jwt, {
-  secret: process.env.JWT_SECRET || 'default-secret',
+  secret: requireSecret('JWT_SECRET', process.env.JWT_SECRET),
   sign: { expiresIn: adminSessionTtl }
 });
 

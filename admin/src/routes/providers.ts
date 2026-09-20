@@ -3,8 +3,12 @@ import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { PROTOCOLS } from '../protocols.js';
 import { writeAudit } from '../audit.js';
+import { requireSecret } from '../env.js';
 
 const prisma = new PrismaClient();
+
+/** 启动即校验:生产环境缺失/弱值会让进程在模块加载时立刻失败。 */
+const ENCRYPTION_KEY = requireSecret('ENCRYPTION_KEY', process.env.ENCRYPTION_KEY);
 
 function encrypt(text: string, key: string): string {
   const iv = crypto.randomBytes(16);
@@ -118,7 +122,7 @@ export async function providerRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
-    const encryptedKey = encrypt(req.body.apiKey, process.env.ENCRYPTION_KEY || 'default-key');
+    const encryptedKey = encrypt(req.body.apiKey, ENCRYPTION_KEY);
 
     const provider = await prisma.$transaction(async (tx) => {
       const p = await tx.provider.create({
@@ -166,7 +170,7 @@ export async function providerRoutes(fastify: FastifyInstance) {
     if (req.body.path) data.path = req.body.path;
     if (req.body.status) data.status = req.body.status;
     if (req.body.apiKey) {
-      data.apiKey = encrypt(req.body.apiKey, process.env.ENCRYPTION_KEY || 'default-key');
+      data.apiKey = encrypt(req.body.apiKey, ENCRYPTION_KEY);
     }
 
     const provider = await prisma.provider.update({
@@ -205,7 +209,7 @@ export async function providerRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Provider not found' });
     }
 
-    const apiKey = decrypt(provider.apiKey, process.env.ENCRYPTION_KEY || 'default-key');
+    const apiKey = decrypt(provider.apiKey, ENCRYPTION_KEY);
     const result = await testProviderConnection(provider.type, provider.baseUrl, apiKey);
     reply.code(result.ok ? 200 : 400);
     return result;
