@@ -28,11 +28,10 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     writeAudit({ actorId: user.id, action: 'login', targetType: 'auth', targetId: email });
 
-    const token = fastify.jwt.sign({
-      id: user.id,
-      email: user.email ?? '',
-      role: user.role
-    });
+    const token = fastify.jwt.sign(
+      { id: user.id, email: user.email ?? '', role: user.role },
+      { expiresIn: process.env.ADMIN_SESSION_TTL ?? '12h' }
+    );
 
     return { token, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
   });
