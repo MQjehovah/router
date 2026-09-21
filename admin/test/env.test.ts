@@ -1,8 +1,47 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 import { WEAK_VALUES, isProduction, requireSecret, corsOrigins, encryptionKey } from '../src/env.js'
 import { encrypt, decrypt } from '../src/crypto-utils.js'
+
+// .env.example 中名称含 SECRET/PASSWORD/KEY/TOKEN 的变量视为秘密;
+// 其占位符必须全部命中 WEAK_VALUES,否则复制模板即绕过生产守卫。
+const ENV_EXAMPLE_PATH = fileURLToPath(new URL('../../.env.example', import.meta.url))
+
+function secretEnvPlaceholders(): Array<{ name: string; value: string }> {
+  return readFileSync(ENV_EXAMPLE_PATH, 'utf-8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'))
+    .flatMap((line) => {
+      const eq = line.indexOf('=')
+      if (eq <= 0) return []
+      const name = line.slice(0, eq).trim()
+      const value = line.slice(eq + 1).trim()
+      return /(SECRET|PASSWORD|KEY|TOKEN)/i.test(name) ? [{ name, value }] : []
+    })
+}
+
+test('.env.example 的秘密占位符在 production 下全部被拒绝', () => {
+  const saved = process.env.APP_ENV
+  process.env.APP_ENV = 'production'
+  try {
+    const placeholders = secretEnvPlaceholders()
+    assert.ok(placeholders.length > 0, '.env.example 应至少包含一个秘密变量占位符')
+    for (const { name, value } of placeholders) {
+      assert.throws(
+        () => requireSecret(name, value),
+        new RegExp(name),
+        `${name}=${value} 应在 production 下被拒绝`
+      )
+    }
+  } finally {
+    if (saved === undefined) delete process.env.APP_ENV
+    else process.env.APP_ENV = saved
+  }
+})
 
 test('isProduction 识别 production/prod(大小写不敏感)', () => {
   for (const v of ['production', 'PROD', 'Prod']) {
