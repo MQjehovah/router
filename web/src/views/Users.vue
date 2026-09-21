@@ -34,10 +34,11 @@
           <template #default="{ row }">
             <div class="user-cell">
               <span class="u-avatar" :class="row.role === 'ADMIN' ? 'is-admin' : ''">{{ (row.name || row.email).slice(0, 1).toUpperCase() }}</span>
-              <div>
-                <div class="u-name">{{ row.name || '—' }}</div>
-                <div class="u-mail font-mono">{{ row.email }}</div>
-              </div>
+                <div>
+                  <div class="u-name">{{ row.name || '—' }}</div>
+                  <div class="u-mail font-mono">{{ row.email || '（无邮箱）' }}</div>
+                  <div v-if="row.employeeId" class="u-mail font-mono" style="opacity:.7">工号 {{ row.employeeId }} · 统一认证</div>
+                </div>
             </div>
           </template>
         </el-table-column>

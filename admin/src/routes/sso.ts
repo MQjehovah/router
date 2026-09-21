@@ -51,11 +51,43 @@ export async function ssoRoutes(fastify: FastifyInstance) {
       return reply.status(401).send({ error: 'ID token has no employee id claim' });
     }
 
-    const email = typeof payload.email === 'string' && payload.email ? payload.email : null;
+    // SSO 的 id_token 不含 email（统一认证只签发 工号/姓名/部门/角色），
+    // 因此用 工号@域名 派生一个稳定、可辨识的邮箱，账号管理里才能认出是谁；
+    // 若该地址已被别的账号占用则保持为空，避免唯一约束冲突导致 500。
+    // 邮箱(LDAP mail)是首选唯一标识: 用于与系统自建账号(按邮箱登录的)对齐,
+    // 避免同一人出现两个账号;不自行拼接邮箱,取不到就留空。
+    const email = typeof payload.email === 'string' && payload.email.trim()
+      ? payload.email.trim().toLowerCase()
+      : null;
     const name = typeof payload.name === 'string' && payload.name ? payload.name : employeeId;
 
-    // 按工号 find-or-create 用户，密码为随机值（SSO 用户不通过控制台密码登录）
-    let user = await prisma.user.findUnique({ where: { employeeId } });
+    // 身份识别顺序: 邮箱 -> 工号 -> 新建(密码为随机值,SSO 用户不走控制台密码登录)
+    let matchedBy = '';
+    let user = email ? await prisma.user.findUnique({ where: { email } }) : null;
+    if (user) {
+      matchedBy = 'email';
+      if (!user.employeeId) {
+        // 命中同邮箱的系统自建账号: 补绑工号,把它接入统一认证
+        try {
+          user = await prisma.user.update({ where: { id: user.id }, data: { employeeId } });
+          matchedBy = 'email+link';
+        } catch {
+          // 该工号已被别的账号占用(历史重复账号): 退回按工号匹配,避免 500
+          console.warn(`[sso] 工号 ${employeeId} 已被占用,无法绑定到邮箱账号 ${email},改按工号匹配`);
+          user = null;
+          matchedBy = '';
+        }
+      } else if (user.employeeId !== employeeId) {
+        console.warn(`[sso] 邮箱 ${email} 对应工号 ${user.employeeId}, 与本次登录工号 ${employeeId} 不一致, 改按工号匹配`);
+        user = null;
+        matchedBy = '';
+      }
+    }
+    if (!user) {
+      user = await prisma.user.findUnique({ where: { employeeId } });
+      if (user) matchedBy = 'employeeId';
+    }
+
     let userCreated = false;
     if (!user) {
       const randomPassword = crypto.randomBytes(32).toString('hex');
@@ -72,8 +104,10 @@ export async function ssoRoutes(fastify: FastifyInstance) {
         }
       });
       userCreated = true;
-    } else if (email && user.email !== email) {
-      user = await prisma.user.update({ where: { id: user.id }, data: { email } });
+      matchedBy = 'created';
+    } else if (name && user.name !== name) {
+      // 姓名以 SSO 为权威源刷新;邮箱不改写(它本身就是匹配键)
+      user = await prisma.user.update({ where: { id: user.id }, data: { name } });
     }
 
       // 按用户 find-or-create key，保证幂等：已有则重复发放同一把
@@ -125,7 +159,7 @@ export async function ssoRoutes(fastify: FastifyInstance) {
       action: 'sso_exchange',
       targetType: 'key',
       targetId: keyId,
-      detail: { employeeId, userCreated, created: !existing, rotated }
+      detail: { employeeId, userCreated, matchedBy, created: !existing, rotated }
     });
 
     return {

@@ -28,7 +28,7 @@ export async function userRoutes(fastify: FastifyInstance) {
     }
     
     const users = await prisma.user.findMany({
-      select: { id: true, email: true, name: true, role: true, balance: true, createdAt: true },
+      select: { id: true, email: true, name: true, employeeId: true, role: true, balance: true, createdAt: true },
       orderBy: { createdAt: 'desc' }
     });
     return users;

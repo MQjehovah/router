@@ -5,6 +5,13 @@ import { WEAK_VALUES } from '../src/env.js';
 const prisma = new PrismaClient();
 
 async function main() {
+  // 已存在管理员则跳过: 否则每次部署都会多造一个 admin@example.com
+  const existingAdmin = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
+  if (existingAdmin) {
+    console.log('Admin already exists, skip:', existingAdmin.email);
+    return;
+  }
+
   const adminPassword = (process.env.ADMIN_PASSWORD ?? '').trim();
   if (!adminPassword || WEAK_VALUES.has(adminPassword)) {
     console.error('错误: 必须通过环境变量 ADMIN_PASSWORD 设置一个非弱口令的管理员密码(未配置或命中弱值清单)');
