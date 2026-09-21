@@ -498,11 +498,11 @@ const handleRegenerate = async (row: any) => {
 
 const handleDelete = async (row: any) => {
   try {
-    await ElMessageBox.confirm(`确定删除 Key「${row.name || row.keyHash}」吗？关联的使用记录会保留。`, '删除确认', {
+    await ElMessageBox.confirm(`确定删除 Key「${row.name || row.keyHash}」吗？该密钥将立即停用，关联的使用记录会保留。`, '删除确认', {
       type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消'
     });
     await api.delete(`/api/keys/${row.id}`);
-    ElMessage.success('已删除');
+    ElMessage.success('已停用（保留了用量与账单记录）');
     loadKeys();
   } catch (e: any) {
     if (e !== 'cancel') ElMessage.error(e.response?.data?.error || '删除失败');

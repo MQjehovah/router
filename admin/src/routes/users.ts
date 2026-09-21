@@ -105,8 +105,23 @@ export async function userRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
-    const userId = parseInt(req.params.id);
-    await prisma.user.delete({ where: { id: userId } });
+      const userId = parseInt(req.params.id);
+
+      // 有依赖数据时给出可操作的提示，而不是让外键报错变成 500
+      const [keyCount, txCount, billCount] = await Promise.all([
+        prisma.apiKey.count({ where: { userId } }),
+        prisma.transaction.count({ where: { userId } }),
+        prisma.bill.count({ where: { userId } })
+      ]);
+      if (keyCount || txCount || billCount) {
+        return reply.status(409).send({
+          error:
+            `该用户名下仍有 ${keyCount} 个密钥、${txCount} 条交易记录、${billCount} 张账单，` +
+            '为保留计费与审计记录不能删除；如需停用其访问，请删除（停用）其密钥。'
+        });
+      }
+
+      await prisma.user.delete({ where: { id: userId } });
 
     writeAudit({
       actorId: req.user.id,

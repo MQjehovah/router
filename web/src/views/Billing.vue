@@ -1,12 +1,12 @@
 <template>
-  <div class="page">
-    <header class="page-head">
-      <div>
-        <h2 class="page-title">账单与充值</h2>
-        <p class="page-sub">余额、交易流水与月结账单</p>
-      </div>
-      <el-button type="primary" :icon="Plus" @click="rechargeOpen = true">充值</el-button>
-    </header>
+    <div class="page">
+      <header class="page-head">
+        <div>
+          <h2 class="page-title">账户与账单</h2>
+          <p class="page-sub">额度、消费流水与月结账单</p>
+        </div>
+        <el-button v-if="authStore.isAdmin" type="primary" :icon="Plus" @click="rechargeOpen = true">充值</el-button>
+      </header>
 
     <div class="banner tech-card">
       <div class="banner-item">
@@ -139,8 +139,13 @@ const loadData = async () => {
   }
 };
 
-const handleRecharge = async () => {
-  if (rechargeForm.value.amount <= 0) return;
+  const handleRecharge = async () => {
+    // 前端隐藏入口 + 这里兜底：充值仅管理员可用（后端同样有校验）
+    if (!authStore.isAdmin) {
+      ElMessage.warning('仅管理员可为账号充值');
+      return;
+    }
+    if (rechargeForm.value.amount <= 0) return;
   submitting.value = true;
   try {
     await api.post('/api/transactions/recharge', rechargeForm.value);

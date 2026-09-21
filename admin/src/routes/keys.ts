@@ -232,19 +232,21 @@ export async function keyRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
-    keyVerifyCache.clear();
-    await prisma.apiKey.delete({ where: { id: keyId } });
+      keyVerifyCache.clear();
+      // 软删除（吊销）：该密钥被用量/账单记录以外键引用且无级联，硬删会 500
+      // 并丢失审计数据；置为 INACTIVE 即刻失效，用量与账单记录保留。
+      await prisma.apiKey.update({ where: { id: keyId }, data: { status: 'INACTIVE' } });
 
-    writeAudit({
-      actorId: req.user.id,
-      action: 'delete',
-      targetType: 'key',
-      targetId: keyId,
-      detail: { name: key.name }
+      writeAudit({
+        actorId: req.user.id,
+        action: 'delete',
+        targetType: 'key',
+        targetId: keyId,
+        detail: { name: key.name, revoked: true }
+      });
+
+      return { success: true, revoked: true };
     });
-
-    return { success: true };
-  });
 
   fastify.get<{ Params: { id: string } }>('/api/keys/:id/stats', {
     preHandler: [fastify.authenticate]

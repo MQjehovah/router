@@ -42,8 +42,14 @@ export async function billingRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: RechargeBody }>('/api/transactions/recharge', {
     preHandler: [fastify.authenticate]
   }, async (req, reply) => {
+    // 仅管理员可充值：普通用户自行充值等于凭空增加额度（计费系统里的造币漏洞）。
+    // 管理员要给某个账号加额度走 PUT /api/users/:id 的 balance 字段。
+    if (req.user.role !== 'ADMIN') {
+      return reply.status(403).send({ error: '仅管理员可为账号充值' });
+    }
+
     const amount = Number(req.body.amount);
-    if (amount <= 0) {
+    if (!Number.isFinite(amount) || amount <= 0) {
       return reply.status(400).send({ error: 'Invalid amount' });
     }
 
