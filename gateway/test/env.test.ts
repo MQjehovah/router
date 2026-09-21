@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 import { WEAK_VALUES, isProduction, requireSecret, corsOrigins } from '../src/env.js'
+import { buildApp } from '../src/app.js'
 
 // .env.example 中名称含 SECRET/PASSWORD/KEY/TOKEN 的变量视为秘密;
 // 其占位符必须全部命中 WEAK_VALUES,否则复制模板即绕过生产守卫。
@@ -112,5 +113,62 @@ test('corsOrigins 解析逗号并去空白,永不含 *', () => {
     assert.ok(!origins.includes('*'))
   } finally {
     delete process.env.CORS_ORIGINS
+  }
+})
+
+// buildApp 是网关的启动入口构造:生产环境缺/弱 INTERNAL_SECRET 必须在此拒绝,
+// 早于 listen 失败;开发环境放行并告警。
+test('buildApp 生产环境缺失/弱 INTERNAL_SECRET 时拒绝启动并指出变量名', async () => {
+  const savedAppEnv = process.env.APP_ENV
+  const savedSecret = process.env.INTERNAL_SECRET
+  process.env.APP_ENV = 'production'
+  try {
+    delete process.env.INTERNAL_SECRET
+    await assert.rejects(() => buildApp(), /INTERNAL_SECRET/)
+    process.env.INTERNAL_SECRET = 'change-me'
+    await assert.rejects(() => buildApp(), /INTERNAL_SECRET/)
+  } finally {
+    if (savedAppEnv === undefined) delete process.env.APP_ENV
+    else process.env.APP_ENV = savedAppEnv
+    if (savedSecret === undefined) delete process.env.INTERNAL_SECRET
+    else process.env.INTERNAL_SECRET = savedSecret
+  }
+})
+
+test('buildApp 开发环境弱 INTERNAL_SECRET 放行并告警', async () => {
+  const savedAppEnv = process.env.APP_ENV
+  const savedSecret = process.env.INTERNAL_SECRET
+  const warnings: string[] = []
+  const original = console.warn
+  let app: Awaited<ReturnType<typeof buildApp>> | undefined
+  process.env.APP_ENV = 'development'
+  process.env.INTERNAL_SECRET = 'change-me'
+  console.warn = (...args: unknown[]) => { warnings.push(args.join(' ')) }
+  try {
+    app = await buildApp()
+  } finally {
+    console.warn = original
+    if (savedAppEnv === undefined) delete process.env.APP_ENV
+    else process.env.APP_ENV = savedAppEnv
+    if (savedSecret === undefined) delete process.env.INTERNAL_SECRET
+    else process.env.INTERNAL_SECRET = savedSecret
+  }
+  assert.ok(warnings.some((w) => w.includes('INTERNAL_SECRET')), '应打印包含变量名的告警')
+  await app?.close()
+})
+
+test('buildApp 生产环境强 INTERNAL_SECRET 正常启动', async () => {
+  const savedAppEnv = process.env.APP_ENV
+  const savedSecret = process.env.INTERNAL_SECRET
+  process.env.APP_ENV = 'production'
+  process.env.INTERNAL_SECRET = 'a-strong-random-internal-secret'
+  try {
+    const app = await buildApp()
+    await app.close()
+  } finally {
+    if (savedAppEnv === undefined) delete process.env.APP_ENV
+    else process.env.APP_ENV = savedAppEnv
+    if (savedSecret === undefined) delete process.env.INTERNAL_SECRET
+    else process.env.INTERNAL_SECRET = savedSecret
   }
 })

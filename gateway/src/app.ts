@@ -1,7 +1,7 @@
 import Fastify, { FastifyServerOptions } from 'fastify';
 import cors from '@fastify/cors';
 
-import { corsOrigins } from './env.js';
+import { corsOrigins, requireSecret } from './env.js';
 import { authenticate } from './middleware/auth.js';
 import { rateLimit } from './middleware/rate-limit.js';
 import { quotaCheck } from './middleware/quota.js';
@@ -11,6 +11,7 @@ import { messagesRoutes } from './routes/messages.js';
 import { embeddingsRoutes } from './routes/embeddings.js';
 
 export async function buildApp(opts: FastifyServerOptions = {}) {
+  requireSecret('INTERNAL_SECRET', process.env.INTERNAL_SECRET);
   const bodyLimitMb = Number(process.env.BODY_LIMIT_MB) || 64;
   const fastify = Fastify({ ...opts, bodyLimit: bodyLimitMb * 1024 * 1024 });
 
