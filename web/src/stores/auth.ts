@@ -12,7 +12,7 @@ interface User {
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null as User | null,
-    token: localStorage.getItem('token') || ''
+    token: localStorage.getItem('router_token') || ''
   }),
   getters: {
     isAdmin: (state) => state.user?.role === 'ADMIN'
@@ -22,7 +22,7 @@ export const useAuthStore = defineStore('auth', {
       const { data } = await api.post('/api/auth/login', { email, password });
       this.token = data.token;
       this.user = data.user;
-      localStorage.setItem('token', data.token);
+      localStorage.setItem('router_token', data.token);
     },
     /** SSO 登录：跳统一认证授权页（回调会带 token 回到登录页） */
     loginWithSso() {
@@ -31,7 +31,7 @@ export const useAuthStore = defineStore('auth', {
     /** SSO 回调带回来的控制台 token：落盘并拉取用户信息 */
     async adoptSsoToken(token: string) {
       this.token = token;
-      localStorage.setItem('token', token);
+      localStorage.setItem('router_token', token);
       await this.fetchUser();
     },
     async fetchUser() {
@@ -42,7 +42,7 @@ export const useAuthStore = defineStore('auth', {
     logout() {
       this.token = '';
       this.user = null;
-      localStorage.removeItem('token');
+      localStorage.removeItem('router_token');
     }
   }
 });
