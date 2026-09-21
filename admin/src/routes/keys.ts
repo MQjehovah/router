@@ -42,10 +42,21 @@ function hashKey(key: string): string {
 }
 
 export async function keyRoutes(fastify: FastifyInstance) {
+  /**
+   * 取「未逻辑删除」的密钥。
+   *
+   * 删除采用逻辑删除（置 deletedAt），用量与账单记录因外键保留；
+   * 逻辑删除后对管理端各接口一律不可见（与列表一致按 404 处理）。
+   */
+  const findLiveKey = (id: number) => prisma.apiKey.findFirst({ where: { id, deletedAt: null } });
+
   fastify.get('/api/keys', {
     preHandler: [fastify.authenticate]
   }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const where = req.user.role === 'ADMIN' ? {} : { userId: req.user.id };
+    // 逻辑删除的密钥不出现在列表里（用量/账单记录仍然保留在库中）
+    const where = req.user.role === 'ADMIN'
+      ? { deletedAt: null }
+      : { userId: req.user.id, deletedAt: null };
     
     const keys = await prisma.apiKey.findMany({
       where,
@@ -122,7 +133,7 @@ export async function keyRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate]
   }, async (req, reply) => {
     const keyId = parseInt(req.params.id);
-    const key = await prisma.apiKey.findUnique({ where: { id: keyId } });
+    const key = await findLiveKey(keyId);
     
     if (!key) {
       return reply.status(404).send({ error: 'Key not found' });
@@ -184,7 +195,7 @@ export async function keyRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate]
   }, async (req, reply) => {
     const keyId = parseInt(req.params.id);
-    const key = await prisma.apiKey.findUnique({ where: { id: keyId } });
+    const key = await findLiveKey(keyId);
 
     if (!key) {
       return reply.status(404).send({ error: 'Key not found' });
@@ -222,7 +233,7 @@ export async function keyRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate]
   }, async (req, reply) => {
     const keyId = parseInt(req.params.id);
-    const key = await prisma.apiKey.findUnique({ where: { id: keyId } });
+    const key = await findLiveKey(keyId);
     
     if (!key) {
       return reply.status(404).send({ error: 'Key not found' });
@@ -232,27 +243,31 @@ export async function keyRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'Forbidden' });
     }
 
-      keyVerifyCache.clear();
-      // 软删除（吊销）：该密钥被用量/账单记录以外键引用且无级联，硬删会 500
-      // 并丢失审计数据；置为 INACTIVE 即刻失效，用量与账单记录保留。
-      await prisma.apiKey.update({ where: { id: keyId }, data: { status: 'INACTIVE' } });
-
-      writeAudit({
-        actorId: req.user.id,
-        action: 'delete',
-        targetType: 'key',
-        targetId: keyId,
-        detail: { name: key.name, revoked: true }
-      });
-
-      return { success: true, revoked: true };
+    keyVerifyCache.clear();
+    // 逻辑删除: 该密钥被用量/账单记录以外键引用且无级联, 硬删会 500 且会丢审计数据。
+    // 置 deletedAt 后: 列表与使用统计都不再显示, 验签立即失效, 记录仍留在库里。
+    // 同时置 status=INACTIVE 作为双保险(任何未过滤 deletedAt 的旧路径也会拒绝)。
+    await prisma.apiKey.update({
+      where: { id: keyId },
+      data: { deletedAt: new Date(), status: 'INACTIVE' }
     });
+
+    writeAudit({
+      actorId: req.user.id,
+      action: 'delete',
+      targetType: 'key',
+      targetId: keyId,
+      detail: { name: key.name, deleted: true }
+    });
+
+    return { success: true, deleted: true };
+  });
 
   fastify.get<{ Params: { id: string } }>('/api/keys/:id/stats', {
     preHandler: [fastify.authenticate]
   }, async (req, reply) => {
     const keyId = parseInt(req.params.id);
-    const key = await prisma.apiKey.findUnique({ where: { id: keyId } });
+    const key = await findLiveKey(keyId);
 
     if (!key) {
       return reply.status(404).send({ error: 'Key not found' });

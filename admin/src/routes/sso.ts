@@ -76,11 +76,12 @@ export async function ssoRoutes(fastify: FastifyInstance) {
       user = await prisma.user.update({ where: { id: user.id }, data: { email } });
     }
 
-    // 按用户 find-or-create key，保证幂等：已有则重复发放同一把
-    let existing = await prisma.apiKey.findFirst({
-      where: { userId: user.id, name: SSO_KEY_NAME, status: 'ACTIVE' },
-      orderBy: { id: 'desc' }
-    });
+      // 按用户 find-or-create key，保证幂等：已有则重复发放同一把
+      // （逻辑删除的 key 不参与复用，否则会发出一把已失效的密钥）
+      let existing = await prisma.apiKey.findFirst({
+        where: { userId: user.id, name: SSO_KEY_NAME, status: 'ACTIVE', deletedAt: null },
+        orderBy: { id: 'desc' }
+      });
 
     let rawKey: string;
     let keyId: number;

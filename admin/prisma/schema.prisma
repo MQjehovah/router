@@ -85,12 +85,14 @@ model ApiKey {
   rateLimit    Int          @default(60)
   dailyQuota   BigInt       @default(100000)
   monthlyQuota BigInt       @default(3000000)
-  expiresAt    DateTime?
-  createdAt    DateTime     @default(now())
+    expiresAt    DateTime?
+    createdAt    DateTime     @default(now())
+    /// 逻辑删除时间：非空表示已删除。列表与使用统计都排除；用量/账单记录因外键保留。
+    deletedAt    DateTime?
 
-  usageRecords  UsageRecord[]
-  allowedModels ApiKeyAllowedModel[]
-}
+    usageRecords  UsageRecord[]
+    allowedModels ApiKeyAllowedModel[]
+  }
 
 enum ApiKeyStatus {
   ACTIVE

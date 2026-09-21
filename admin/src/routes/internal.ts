@@ -44,10 +44,11 @@ async function verifyKey(apiKey: string): Promise<KeyVerifyResult> {
   return result;
 }
 
-async function doVerify(apiKey: string): Promise<KeyVerifyResult> {
-  const keys = await prisma.apiKey.findMany({
-    where: { status: 'ACTIVE' }
-  });
+  async function doVerify(apiKey: string): Promise<KeyVerifyResult> {
+    const keys = await prisma.apiKey.findMany({
+      // 逻辑删除的密钥同样不可用（status 已置 INACTIVE，这里再按 deletedAt 过滤一次）
+      where: { status: 'ACTIVE', deletedAt: null }
+    });
 
   for (const key of keys) {
     if (bcrypt.compareSync(apiKey, key.keyHash)) {

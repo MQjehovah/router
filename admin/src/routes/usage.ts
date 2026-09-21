@@ -8,7 +8,10 @@ export async function usageRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate]
   }, async (req, reply) => {
     const range = req.query.range === 'today' || req.query.range === 'month' ? req.query.range : 'total';
-    const baseWhere = req.user.role === 'ADMIN' ? {} : { apiKey: { userId: req.user.id } };
+    // 逻辑删除的密钥不计入使用统计（记录仍在库中，但不再展示）
+    const baseWhere = req.user.role === 'ADMIN'
+      ? { apiKey: { deletedAt: null } }
+      : { apiKey: { userId: req.user.id, deletedAt: null } };
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -23,6 +26,8 @@ export async function usageRoutes(fastify: FastifyInstance) {
     if (range === 'today') ands.push(Prisma.sql`u."createdAt" >= ${today}`);
     if (range === 'month') ands.push(Prisma.sql`u."createdAt" >= ${monthStart}`);
     if (req.user.role !== 'ADMIN') ands.push(Prisma.sql`k."userId" = ${req.user.id}`);
+    // 逻辑删除的密钥不参与排名
+    ands.push(Prisma.sql`k."deletedAt" IS NULL`);
     const whereSql = ands.length ? Prisma.sql`WHERE ${Prisma.join(ands, ' AND ')}` : Prisma.empty;
 
     const [usage, topModels, topKeyRows, topTokenRows] = await Promise.all([
@@ -121,7 +126,10 @@ export async function usageRoutes(fastify: FastifyInstance) {
   fastify.get<{ Querystring: { limit?: string; offset?: string } }>('/api/usage/records', {
     preHandler: [fastify.authenticate]
   }, async (req, reply) => {
-    const where = req.user.role === 'ADMIN' ? {} : { apiKey: { userId: req.user.id } };
+    // 逻辑删除的密钥不展示其调用记录
+    const where = req.user.role === 'ADMIN'
+      ? { apiKey: { deletedAt: null } }
+      : { apiKey: { userId: req.user.id, deletedAt: null } };
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = parseInt(req.query.offset as string) || 0;
 
@@ -145,7 +153,10 @@ export async function usageRoutes(fastify: FastifyInstance) {
     preHandler: [fastify.authenticate]
   }, async (req, reply) => {
     const days = Math.min(Math.max(parseInt(req.query.days as string) || 7, 1), 30);
-    const where = req.user.role === 'ADMIN' ? {} : { apiKey: { userId: req.user.id } };
+    // 逻辑删除的密钥不计入趋势
+    const where = req.user.role === 'ADMIN'
+      ? { apiKey: { deletedAt: null } }
+      : { apiKey: { userId: req.user.id, deletedAt: null } };
 
     const now = new Date();
     const start = new Date(now.getTime() - (days - 1) * 86400000);
