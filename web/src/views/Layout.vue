@@ -2,7 +2,7 @@
   <el-container class="layout">
     <el-aside :width="collapsed ? '72px' : '232px'" class="sidebar">
       <div class="brand" :class="{ collapsed }">
-        <div class="brand-mark">AI</div>
+        <img class="brand-mark" :src="logoUrl" alt="Rosiwit" />
         <span v-show="!collapsed" class="brand-name">AI Gateway</span>
       </div>
       <el-menu
@@ -118,8 +118,9 @@ import {
   Odometer, Key, TrendCharts, Wallet, User, Connection, Tickets,
   Expand, Fold, ArrowDown, SwitchButton
 } from '@element-plus/icons-vue';
-import { useAuthStore } from '../stores/auth';
-import api from '../api';
+  import { useAuthStore } from '../stores/auth';
+  import api from '../api';
+  import logoUrl from '../assets/logo.svg';
 
 const route = useRoute();
 const router = useRouter();
@@ -239,14 +240,9 @@ onMounted(async () => {
   flex: none;
   width: 34px;
   height: 34px;
-  display: grid;
-  place-items: center;
+  display: block;
+  object-fit: contain;
   border-radius: 10px;
-  background: var(--brand-grad);
-  color: #04222b;
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.02em;
   box-shadow: 0 6px 16px -6px var(--brand-glow);
 }
 .brand-name {
