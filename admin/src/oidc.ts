@@ -1,4 +1,4 @@
-import { webcrypto } from 'node:crypto';
+import { randomBytes, webcrypto } from 'node:crypto';
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 
 // jose 依赖 Web Crypto(globalThis.crypto.subtle);node:18 默认未暴露,补全局垫片
@@ -17,8 +17,8 @@ let remoteJwksUri: string | null = null;
 
 const DISCOVERY_TTL_MS = 60 * 60 * 1000;
 
-export function isOidcConfigured(): boolean {
-  return Boolean(process.env.OIDC_ISSUER && process.env.OIDC_AUDIENCE);
+export function isOidcConfigured(audience?: string): boolean {
+  return Boolean(process.env.OIDC_ISSUER && (audience || process.env.OIDC_AUDIENCE));
 }
 
 async function discover(issuer: string): Promise<Discovery> {
@@ -53,15 +53,20 @@ async function getJwksFetcher(): Promise<ReturnType<typeof createRemoteJWKSet>> 
 }
 
 /// 校验 IdP 签发的 ID Token（签名、iss、aud、exp），返回 payload
-export async function verifyIdToken(idToken: string): Promise<JWTPayload> {
-  if (!isOidcConfigured()) {
+///
+/// audience 显式传入时优先于 OIDC_AUDIENCE：浏览器授权码回调拿到的 id_token
+/// 受众是本控制台自己的 client_id，而 /internal/sso/exchange 认的是调用方
+/// （桌面端 dashboard-gateway）的 client_id，两者需要区分。
+export async function verifyIdToken(idToken: string, audience?: string): Promise<JWTPayload> {
+  const resolvedAudience = audience || process.env.OIDC_AUDIENCE;
+  if (!isOidcConfigured(resolvedAudience)) {
     throw new Error('OIDC not configured');
   }
 
   const jwks = await getJwksFetcher();
   const { payload } = await jwtVerify(idToken, jwks, {
     issuer: process.env.OIDC_ISSUER,
-    audience: process.env.OIDC_AUDIENCE,
+    audience: resolvedAudience,
     clockTolerance: 30
   });
   return payload;
@@ -88,4 +93,85 @@ export function extractEmployeeId(payload: JWTPayload): string | null {
     if (typeof value === 'number') return String(value);
   }
   return null;
+}
+
+// ---- 浏览器 SSO 登录（授权码流程）----
+
+const SSO_STATE_TTL_MS = 10 * 60 * 1000;
+const ssoStates = new Map<string, number>();
+
+/// 浏览器 SSO 登录是否可用：issuer + client_id + redirect_uri 齐备
+export function isSsoLoginConfigured(): boolean {
+  return Boolean(
+    process.env.OIDC_ISSUER && process.env.OIDC_CLIENT_ID && process.env.OIDC_REDIRECT_URI
+  );
+}
+
+/// 生成一次性 state（附带清理过期项，避免 Map 无界增长）
+export function newSsoState(): string {
+  const state = randomBytes(16).toString('base64url');
+  const now = Date.now();
+  for (const [key, ts] of ssoStates) {
+    if (now - ts > SSO_STATE_TTL_MS) ssoStates.delete(key);
+  }
+  ssoStates.set(state, now);
+  return state;
+}
+
+/// 校验并消费 state：不存在/已用过/过期均返回 false
+export function consumeSsoState(state: string): boolean {
+  const ts = ssoStates.get(state);
+  if (ts === undefined) return false;
+  ssoStates.delete(state);
+  return Date.now() - ts <= SSO_STATE_TTL_MS;
+}
+
+/// 构造授权跳转 URL（浏览器访问，用配置的 issuer 公网地址）
+export function buildSsoAuthorizeUrl(state: string): string {
+  if (!isSsoLoginConfigured()) throw new Error('SSO login not configured');
+  const issuer = process.env.OIDC_ISSUER!.replace(/\/$/, '');
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: process.env.OIDC_CLIENT_ID!,
+    redirect_uri: process.env.OIDC_REDIRECT_URI!,
+    state,
+    scope: 'openid profile'
+  });
+  return `${issuer}/authorize?${params.toString()}`;
+}
+
+/// authorization_code → token 交换，返回 id_token
+///
+/// 同时带 client_secret_basic（Authorization 头）与 client_secret_post（表单字段），
+/// 兼容两种支持方式。
+export async function exchangeCodeForIdToken(code: string): Promise<string> {
+  if (!isSsoLoginConfigured()) throw new Error('SSO login not configured');
+  const issuer = process.env.OIDC_ISSUER!.replace(/\/$/, '');
+  const form = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: process.env.OIDC_REDIRECT_URI!,
+    client_id: process.env.OIDC_CLIENT_ID!
+  });
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/x-www-form-urlencoded'
+  };
+  const secret = process.env.OIDC_CLIENT_SECRET;
+  if (secret) {
+    form.set('client_secret', secret);
+    headers.Authorization =
+      'Basic ' + Buffer.from(`${process.env.OIDC_CLIENT_ID}:${secret}`).toString('base64');
+  }
+
+  const response = await fetch(`${issuer}/token`, {
+    method: 'POST',
+    headers,
+    body: form.toString()
+  });
+  if (!response.ok) {
+    throw new Error(`token 交换失败：HTTP ${response.status}`);
+  }
+  const data = (await response.json()) as { id_token?: string };
+  if (!data.id_token) throw new Error('token 响应缺少 id_token');
+  return data.id_token;
 }

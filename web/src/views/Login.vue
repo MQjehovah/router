@@ -54,6 +54,9 @@
         >
           {{ loading ? '登录中…' : '进入控制台' }}
         </el-button>
+        <el-button size="large" class="submit sso-submit" :loading="ssoLoading" @click="handleSsoLogin">
+          企业 SSO 登录
+        </el-button>
       </el-form>
     </main>
 
@@ -64,18 +67,20 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { onMounted, reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
 import { User as UserIcon, Lock } from '@element-plus/icons-vue';
 import { useAuthStore } from '../stores/auth';
 
+const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 
 const formRef = ref<FormInstance>();
 const form = reactive({ email: '', password: '' });
 const loading = ref(false);
+const ssoLoading = ref(false);
 
 const rules: FormRules = {
   email: [
@@ -101,6 +106,29 @@ const handleLogin = async () => {
     loading.value = false;
   }
 };
+
+const handleSsoLogin = () => {
+  ssoLoading.value = true;
+  authStore.loginWithSso();
+};
+
+/** SSO 回调：带 token 回本页 → 落盘后进入控制台；带 error 则原样提示 */
+onMounted(async () => {
+  const ssoError = route.query.error;
+  if (typeof ssoError === 'string' && ssoError) ElMessage.error(ssoError);
+  const ssoToken = route.query.token;
+  if (typeof ssoToken !== 'string' || !ssoToken) return;
+  loading.value = true;
+  try {
+    await authStore.adoptSsoToken(ssoToken);
+    ElMessage.success('登录成功');
+    router.replace('/');
+  } catch {
+    ElMessage.error('SSO 登录失败，请重试');
+  } finally {
+    loading.value = false;
+  }
+});
 </script>
 
 <style scoped>
@@ -229,6 +257,19 @@ const handleLogin = async () => {
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+.sso-submit {
+  margin-left: 0;
+  background: rgba(15, 22, 38, 0.6);
+  border: 1px solid var(--border-strong);
+  color: var(--text-2);
+  font-weight: 500;
+}
+.sso-submit:hover {
+  border-color: var(--brand-glow);
+  color: var(--text-1);
+  background: rgba(15, 22, 38, 0.85);
 }
 
 .login-foot {
