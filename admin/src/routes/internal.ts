@@ -15,10 +15,12 @@ const MONTHLY_BALANCE = Number(process.env.SSO_MONTHLY_BALANCE ?? 100);
  * 跨月重置: 余额回到月度额度并记一笔 RECHARGE 流水。
  * 由 /internal/keys/verify 热路径调用 —— 只在月份变化时写库, 平时零开销。
  */
-async function ensureMonthlyBalance<T extends { id: number; balance: unknown; balanceResetAt: Date | null } | null>(
-  user: T
-): Promise<T> {
+async function ensureMonthlyBalance<
+  T extends { id: number; balance: unknown; balanceResetAt: Date | null; employeeId?: string | null } | null
+>(user: T): Promise<T> {
   if (!user) return user;
+  // 仅员工账号(有工号)参与月度额度; 管理员等内部账号不动余额
+  if (!user.employeeId) return user;
   const now = new Date();
   const last = user.balanceResetAt ? new Date(user.balanceResetAt) : null;
   const stale =
@@ -28,7 +30,7 @@ async function ensureMonthlyBalance<T extends { id: number; balance: unknown; ba
     const updated = await prisma.user.update({
       where: { id: user.id },
       data: { balance: MONTHLY_BALANCE, balanceResetAt: now },
-      select: { id: true, balance: true, balanceResetAt: true }
+      select: { id: true, balance: true, balanceResetAt: true, employeeId: true }
     });
     await prisma.transaction.create({
       data: {
