@@ -1,5 +1,6 @@
 import 'fastify';
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { PrismaClient } from '@prisma/client';
 import type { SsoUser } from './sso-auth.js';
 
 declare module '@fastify/jwt' {
@@ -11,6 +12,8 @@ declare module '@fastify/jwt' {
 
 declare module 'fastify' {
   interface FastifyInstance {
+    /// 共享 Prisma 客户端(index.ts 装配); 测试可用替身覆盖, 故声明为可选
+    prisma?: PrismaClient;
     authenticate: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     authenticateSso: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }

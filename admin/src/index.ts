@@ -14,6 +14,7 @@ import { createAuthenticateSso } from './sso-auth.js';
 import { providerRoutes } from './routes/providers.js';
 import { modelRoutes } from './routes/models.js';
 import { usageRoutes } from './routes/usage.js';
+import { meRoutes } from './routes/me.js';
 import { billingRoutes } from './routes/billing.js';
 import { auditRoutes } from './routes/audit.js';
 
@@ -69,6 +70,7 @@ await fastify.register(ssoRoutes);
 await fastify.register(providerRoutes);
 await fastify.register(modelRoutes);
 await fastify.register(usageRoutes);
+await fastify.register(meRoutes);
 await fastify.register(billingRoutes);
 await fastify.register(auditRoutes);
 
