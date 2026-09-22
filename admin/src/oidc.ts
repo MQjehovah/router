@@ -72,6 +72,22 @@ export async function verifyIdToken(idToken: string, audience?: string): Promise
   return payload;
 }
 
+/// 校验员工端交换来的 router token(签名/iss/aud/exp)；aud 取 SSO_ROUTER_AUDIENCE，默认 router
+export async function verifySsoToken(token: string): Promise<JWTPayload> {
+  const audience = process.env.SSO_ROUTER_AUDIENCE || 'router';
+  if (!isOidcConfigured(audience)) {
+    throw new Error('SSO router audience not configured');
+  }
+
+  const jwks = await getJwksFetcher();
+  const { payload } = await jwtVerify(token, jwks, {
+    issuer: process.env.OIDC_ISSUER,
+    audience,
+    clockTolerance: 30
+  });
+  return payload;
+}
+
 /// 从 payload 提取工号：优先取配置的 claim（OIDC_EMPLOYEE_ID_CLAIM），再尝试常见命名，
 /// 最后回退 sub（SSO 的 id_token 默认把工号放在 sub）
 export function extractEmployeeId(payload: JWTPayload): string | null {

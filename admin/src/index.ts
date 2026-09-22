@@ -10,6 +10,7 @@ import { userRoutes } from './routes/users.js';
 import { keyRoutes } from './routes/keys.js';
 import { internalRoutes } from './routes/internal.js';
 import { ssoRoutes } from './routes/sso.js';
+import { createAuthenticateSso } from './sso-auth.js';
 import { providerRoutes } from './routes/providers.js';
 import { modelRoutes } from './routes/models.js';
 import { usageRoutes } from './routes/usage.js';
@@ -57,6 +58,8 @@ fastify.decorate('authenticate', async (req: any, reply: any) => {
     reply.status(401).send({ error: 'Unauthorized' });
   }
 });
+
+fastify.decorate('authenticateSso', createAuthenticateSso(prisma));
 
 await fastify.register(authRoutes);
 await fastify.register(userRoutes);

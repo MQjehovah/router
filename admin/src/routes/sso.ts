@@ -2,19 +2,11 @@ import { FastifyInstance } from 'fastify';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
-import { keyVerifyCache } from '../key-cache.js';
 import { writeAudit } from '../audit.js';
-import { encrypt, decrypt } from '../crypto-utils.js';
+import { ensureUserKey } from '../services/user-key.js';
 import { isOidcConfigured, verifyIdToken, extractEmployeeId } from '../oidc.js';
-import { encryptionKey } from '../env.js';
 
 const prisma = new PrismaClient();
-
-/** 启动即校验:生产环境缺失/弱值会让进程在模块加载时立刻失败;开发回退开发密钥。 */
-const ENCRYPTION_KEY = encryptionKey();
-
-/// SSO 自动开通的 key 统一命名，交换端点按该名字 find-or-create
-const SSO_KEY_NAME = 'sso';
 
 interface ExchangeBody {
   idToken: string;
@@ -121,70 +113,33 @@ export async function ssoRoutes(fastify: FastifyInstance) {
       }
     }
 
-      // 按用户 find-or-create key，保证幂等：已有则重复发放同一把
-      // （逻辑删除的 key 不参与复用，否则会发出一把已失效的密钥）
-      let existing = await prisma.apiKey.findFirst({
-        where: { userId: user.id, name: SSO_KEY_NAME, status: 'ACTIVE', deletedAt: null },
-        orderBy: { id: 'desc' }
-      });
-
-    let rawKey: string;
-    let keyId: number;
-    let rotated = false;
-
-    if (existing?.keyEncrypted) {
-      keyId = existing.id;
-      rawKey = decrypt(existing.keyEncrypted, ENCRYPTION_KEY);
-    } else {
-      rawKey = `sk-${crypto.randomBytes(32).toString('hex')}`;
-      const keyHash = bcrypt.hashSync(rawKey, 10);
-      const keyEncrypted = encrypt(rawKey, ENCRYPTION_KEY);
-
-      if (existing) {
-        // 旧 key 没有加密副本（历史数据），轮换后补上，旧 key 立即失效
-        const updated = await prisma.apiKey.update({
-          where: { id: existing.id },
-          data: { keyHash, keyEncrypted }
-        });
-        keyId = updated.id;
-        rotated = true;
-      } else {
-        const created = await prisma.apiKey.create({
-          data: {
-            userId: user.id,
-            keyHash,
-            keyEncrypted,
-            name: SSO_KEY_NAME,
-            rateLimit: req.body?.rateLimit || 60,
-            dailyQuota: req.body?.dailyQuota ?? 100000,
-            monthlyQuota: req.body?.monthlyQuota ?? 3000000
-          }
-        });
-        keyId = created.id;
-      }
-      keyVerifyCache.clear();
-    }
+    // 按用户 find-or-create key，保证幂等：已有则重复发放同一把
+    const ensured = await ensureUserKey(prisma, user.id, {
+      rateLimit: req.body?.rateLimit,
+      dailyQuota: req.body?.dailyQuota,
+      monthlyQuota: req.body?.monthlyQuota
+    });
 
     writeAudit({
       actorId: user.id,
       action: 'sso_exchange',
       targetType: 'key',
-      targetId: keyId,
-      detail: { employeeId, userCreated, matchedBy, created: !existing, rotated }
+      targetId: ensured.keyId,
+      detail: { employeeId, userCreated, matchedBy, created: ensured.created, rotated: ensured.rotated }
     });
 
     return {
-      key: rawKey,
-      keyId,
+      key: ensured.key,
+      keyId: ensured.keyId,
       userId: user.id,
       employeeId,
       name: user.name,
       email: user.email,
-      created: !existing,
-      rotated,
-      rateLimit: existing?.rateLimit ?? req.body?.rateLimit ?? 60,
-      dailyQuota: Number(existing?.dailyQuota ?? req.body?.dailyQuota ?? 100000),
-      monthlyQuota: Number(existing?.monthlyQuota ?? req.body?.monthlyQuota ?? 3000000)
+      created: ensured.created,
+      rotated: ensured.rotated,
+      rateLimit: ensured.rateLimit,
+      dailyQuota: ensured.dailyQuota,
+      monthlyQuota: ensured.monthlyQuota
     };
   });
 }
