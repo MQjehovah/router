@@ -127,7 +127,7 @@ export async function authRoutes(fastify: FastifyInstance) {
           email,
           name,
           role: ssoDefaultRole(),
-          balance: Number(process.env.SSO_INITIAL_BALANCE ?? 1000000),
+          balance: Number(process.env.SSO_INITIAL_BALANCE ?? 100),
           passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10)
         }
       });

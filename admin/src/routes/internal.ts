@@ -8,6 +8,44 @@ import { encryptionKey } from '../env.js';
 
 const prisma = new PrismaClient();
 
+/** 每月额度(元); SSO_MONTHLY_BALANCE 可覆盖 */
+const MONTHLY_BALANCE = Number(process.env.SSO_MONTHLY_BALANCE ?? 100);
+
+/**
+ * 跨月重置: 余额回到月度额度并记一笔 RECHARGE 流水。
+ * 由 /internal/keys/verify 热路径调用 —— 只在月份变化时写库, 平时零开销。
+ */
+async function ensureMonthlyBalance<T extends { id: number; balance: unknown; balanceResetAt: Date | null } | null>(
+  user: T
+): Promise<T> {
+  if (!user) return user;
+  const now = new Date();
+  const last = user.balanceResetAt ? new Date(user.balanceResetAt) : null;
+  const stale =
+    !last || last.getFullYear() !== now.getFullYear() || last.getMonth() !== now.getMonth();
+  if (!stale) return user;
+  try {
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: { balance: MONTHLY_BALANCE, balanceResetAt: now },
+      select: { id: true, balance: true, balanceResetAt: true }
+    });
+    await prisma.transaction.create({
+      data: {
+        userId: user.id,
+        type: 'RECHARGE',
+        amount: MONTHLY_BALANCE,
+        balance: updated.balance,
+        description: `每月额度重置(${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')})`
+      }
+    });
+    return updated as unknown as T;
+  } catch (err) {
+    console.warn('[quota] 月度额度重置失败:', (err as Error).message);
+    return user;
+  }
+}
+
 /** 启动即校验:生产环境缺失/弱值会让进程在模块加载时立刻失败;开发回退开发密钥。 */
 const ENCRYPTION_KEY = encryptionKey();
 
@@ -84,8 +122,11 @@ export async function internalRoutes(fastify: FastifyInstance) {
     today.setHours(0, 0, 0, 0);
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
-    const [user, todayUsage, monthUsage] = await Promise.all([
-      prisma.user.findUnique({ where: { id: result.userId }, select: { balance: true } }),
+    const [userRaw, todayUsage, monthUsage] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: result.userId },
+        select: { id: true, balance: true, balanceResetAt: true }
+      }),
       prisma.usageRecord.aggregate({
         where: { apiKeyId: result.keyId, createdAt: { gte: today } },
         _sum: { tokensIn: true, tokensOut: true, cachedTokens: true }
@@ -95,6 +136,9 @@ export async function internalRoutes(fastify: FastifyInstance) {
         _sum: { tokensIn: true, tokensOut: true, cachedTokens: true }
       })
     ]);
+
+    // 每月额度: 跨月首次调用时把余额重置为月度额度(默认 100 元), 并记一笔流水
+    const user = await ensureMonthlyBalance(userRaw)
 
     const sumTokens = (u: { _sum: { tokensIn: number | null; tokensOut: number | null; cachedTokens: number | null } }) =>
       (u._sum.tokensIn || 0) + (u._sum.tokensOut || 0) + (u._sum.cachedTokens || 0);

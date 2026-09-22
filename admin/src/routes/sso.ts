@@ -92,7 +92,7 @@ export async function ssoRoutes(fastify: FastifyInstance) {
     if (!user) {
       const randomPassword = crypto.randomBytes(32).toString('hex');
       // 新开通员工给初始额度(内部免手动开号即用);额度用尽后由管理员充值
-      const initialBalance = Number(process.env.SSO_INITIAL_BALANCE ?? 1000000);
+      const initialBalance = Number(process.env.SSO_INITIAL_BALANCE ?? 100);
       user = await prisma.user.create({
         data: {
           employeeId,
@@ -100,14 +100,25 @@ export async function ssoRoutes(fastify: FastifyInstance) {
           name,
           role: 'USER',
           balance: initialBalance,
+          balanceResetAt: new Date(),
           passwordHash: await bcrypt.hash(randomPassword, 10)
         }
       });
       userCreated = true;
       matchedBy = 'created';
-    } else if (name && user.name !== name) {
-      // 姓名以 SSO 为权威源刷新;邮箱不改写(它本身就是匹配键)
-      user = await prisma.user.update({ where: { id: user.id }, data: { name } });
+    } else {
+      const patch: { name?: string; email?: string } = {};
+      if (name && user.name !== name) patch.name = name;
+      // 历史账号缺邮箱时用 id_token 的 LDAP mail 回填(仅补空, 不覆盖已有值)
+      if (email && !user.email) patch.email = email;
+      if (Object.keys(patch).length > 0) {
+        try {
+          user = await prisma.user.update({ where: { id: user.id }, data: patch });
+          if (patch.email) matchedBy = matchedBy ? `${matchedBy}+email` : 'email-backfill';
+        } catch (err) {
+          console.warn(`[sso] 回填用户信息失败(${Object.keys(patch).join(',')}): ${(err as Error).message}`);
+        }
+      }
     }
 
       // 按用户 find-or-create key，保证幂等：已有则重复发放同一把
