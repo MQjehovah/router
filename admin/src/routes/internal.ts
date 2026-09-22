@@ -36,17 +36,17 @@ interface ReportBody {
   latencyMs: number;
 }
 
-async function verifyKey(apiKey: string): Promise<KeyVerifyResult> {
+async function verifyKey(db: PrismaClient, apiKey: string): Promise<KeyVerifyResult> {
   const cached = keyVerifyCache.get(apiKey);
   if (cached) return cached;
 
-  const result = await doVerify(apiKey);
+  const result = await doVerify(db, apiKey);
   keyVerifyCache.set(apiKey, result);
   return result;
 }
 
-  async function doVerify(apiKey: string): Promise<KeyVerifyResult> {
-    const keys = await prisma.apiKey.findMany({
+  async function doVerify(db: PrismaClient, apiKey: string): Promise<KeyVerifyResult> {
+    const keys = await db.apiKey.findMany({
       // 逻辑删除的密钥同样不可用（status 已置 INACTIVE，这里再按 deletedAt 过滤一次）
       where: { status: 'ACTIVE', deletedAt: null }
     });
@@ -76,7 +76,8 @@ export async function internalRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'Invalid internal secret' });
     }
 
-    const result = await verifyKey(req.body.apiKey);
+    const db = fastify.prisma ?? prisma;
+    const result = await verifyKey(db, req.body.apiKey);
     if (!result.valid) {
       return reply.status(401).send({ error: result.reason });
     }
@@ -86,22 +87,23 @@ export async function internalRoutes(fastify: FastifyInstance) {
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
     const [userRaw, todayUsage, monthUsage] = await Promise.all([
-      prisma.user.findUnique({
+      db.user.findUnique({
         where: { id: result.userId },
-        select: { id: true, balance: true, balanceResetAt: true }
+        // employeeId 必须带上: ensureMonthlyBalance 只对员工账号做跨月重置
+        select: { id: true, balance: true, balanceResetAt: true, employeeId: true }
       }),
-      prisma.usageRecord.aggregate({
+      db.usageRecord.aggregate({
         where: { apiKeyId: result.keyId, createdAt: { gte: today } },
         _sum: { tokensIn: true, tokensOut: true, cachedTokens: true }
       }),
-      prisma.usageRecord.aggregate({
+      db.usageRecord.aggregate({
         where: { apiKeyId: result.keyId, createdAt: { gte: monthStart } },
         _sum: { tokensIn: true, tokensOut: true, cachedTokens: true }
       })
     ]);
 
     // 每月额度: 跨月首次调用时把余额重置为月度额度(默认 100 元), 并记一笔流水
-    const user = await ensureMonthlyBalance(prisma, userRaw)
+    const user = await ensureMonthlyBalance(db, userRaw)
 
     const sumTokens = (u: { _sum: { tokensIn: number | null; tokensOut: number | null; cachedTokens: number | null } }) =>
       (u._sum.tokensIn || 0) + (u._sum.tokensOut || 0) + (u._sum.cachedTokens || 0);
@@ -112,20 +114,20 @@ export async function internalRoutes(fastify: FastifyInstance) {
     let modelMonthTokens = 0;
 
     if (req.body.model) {
-      const model = await prisma.model.findUnique({ where: { name: req.body.model } });
+      const model = await db.model.findUnique({ where: { name: req.body.model } });
       if (model) {
-        const grant = await prisma.apiKeyAllowedModel.findUnique({
+        const grant = await db.apiKeyAllowedModel.findUnique({
           where: { apiKeyId_modelId: { apiKeyId: result.keyId, modelId: model.id } }
         });
         if (grant) {
           modelDailyQuota = Number(grant.dailyQuota);
           modelMonthlyQuota = Number(grant.monthlyQuota);
           const [mToday, mMonth] = await Promise.all([
-            prisma.usageRecord.aggregate({
+            db.usageRecord.aggregate({
               where: { apiKeyId: result.keyId, model: req.body.model, createdAt: { gte: today } },
               _sum: { tokensIn: true, tokensOut: true, cachedTokens: true }
             }),
-            prisma.usageRecord.aggregate({
+            db.usageRecord.aggregate({
               where: { apiKeyId: result.keyId, model: req.body.model, createdAt: { gte: monthStart } },
               _sum: { tokensIn: true, tokensOut: true, cachedTokens: true }
             })
@@ -158,13 +160,14 @@ export async function internalRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'Invalid internal secret' });
     }
 
-    const result = await verifyKey(req.body.apiKey);
+    const db = fastify.prisma ?? prisma;
+    const result = await verifyKey(db, req.body.apiKey);
     if (!result.valid) {
       return reply.status(401).send({ error: result.reason });
     }
 
     const keyId = result.keyId;
-    const grants = await prisma.apiKeyAllowedModel.findMany({
+    const grants = await db.apiKeyAllowedModel.findMany({
       where: { apiKeyId: keyId },
       include: { model: { include: { provider: true } } }
     });
@@ -175,7 +178,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
         .filter(g => g.model.status === 'ACTIVE' && g.model.provider.status === 'ACTIVE')
         .map(g => g.model.name);
     } else {
-      models = (await prisma.model.findMany({
+      models = (await db.model.findMany({
         where: { status: 'ACTIVE' },
         include: { provider: true }
       }))
@@ -192,12 +195,13 @@ export async function internalRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'Invalid internal secret' });
     }
 
-    const result = await verifyKey(req.body.apiKey);
+    const db = fastify.prisma ?? prisma;
+    const result = await verifyKey(db, req.body.apiKey);
     if (!result.valid) {
       return reply.status(401).send({ error: result.reason });
     }
 
-    const model = await prisma.model.findUnique({
+    const model = await db.model.findUnique({
       where: { name: req.body.model },
       include: { provider: true }
     });
@@ -210,16 +214,16 @@ export async function internalRoutes(fastify: FastifyInstance) {
     }
 
     const keyId = result.keyId;
-    const grant = await prisma.apiKeyAllowedModel.findUnique({
+    const grant = await db.apiKeyAllowedModel.findUnique({
       where: { apiKeyId_modelId: { apiKeyId: keyId, modelId: model.id } }
     });
     const hasGrant = !!grant;
-    const hasAnyGrant = (await prisma.apiKeyAllowedModel.count({ where: { apiKeyId: keyId } })) > 0;
+    const hasAnyGrant = (await db.apiKeyAllowedModel.count({ where: { apiKeyId: keyId } })) > 0;
     if (hasAnyGrant && !hasGrant) {
       return reply.status(403).send({ error: `Key not allowed to use model: ${req.body.model}` });
     }
 
-    const protoRows = await prisma.providerProtocol.findMany({
+    const protoRows = await db.providerProtocol.findMany({
       where: { providerId: model.providerId },
       orderBy: { id: 'asc' }
     });
@@ -263,14 +267,15 @@ export async function internalRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'Invalid internal secret' });
     }
 
+    const db = fastify.prisma ?? prisma;
     const { apiKey, providerId, model, tokensIn, tokensOut, cost, latencyMs } = req.body;
-    const verifyResult = await verifyKey(apiKey);
+    const verifyResult = await verifyKey(db, apiKey);
     
     if (!verifyResult.valid) {
       return reply.status(401).send({ error: 'Invalid key' });
     }
 
-    await prisma.usageRecord.create({
+    await db.usageRecord.create({
       data: {
         apiKeyId: verifyResult.keyId,
         providerId,
@@ -283,7 +288,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
       }
     });
 
-    await prisma.user.update({
+    await db.user.update({
       where: { id: verifyResult.userId },
       data: {
         balance: { decrement: cost }
@@ -299,11 +304,12 @@ export async function internalRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'Invalid internal secret' });
     }
 
+    const db = fastify.prisma ?? prisma;
     const keyId = parseInt(req.params.keyId);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const usage = await prisma.usageRecord.aggregate({
+    const usage = await db.usageRecord.aggregate({
       where: {
         apiKeyId: keyId,
         createdAt: { gte: today }
@@ -328,12 +334,13 @@ export async function internalRoutes(fastify: FastifyInstance) {
       return reply.status(403).send({ error: 'Invalid internal secret' });
     }
 
+    const db = fastify.prisma ?? prisma;
     const keyId = parseInt(req.params.keyId);
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const usage = await prisma.usageRecord.aggregate({
+    const usage = await db.usageRecord.aggregate({
       where: {
         apiKeyId: keyId,
         createdAt: { gte: monthStart }

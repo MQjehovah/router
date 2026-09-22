@@ -11,6 +11,11 @@ const ENCRYPTION_KEY = encryptionKey();
 /// SSO 自动开通的 key 统一命名，交换端点按该名字 find-or-create
 export const SSO_KEY_NAME = 'sso';
 
+/** 未显式传参/无 key 回显时的默认限流与配额(与 ApiKey schema 默认值一致) */
+export const DEFAULT_RATE_LIMIT = 60;
+export const DEFAULT_DAILY_QUOTA = 100000;
+export const DEFAULT_MONTHLY_QUOTA = 3000000;
+
 export interface EnsureUserKeyOptions {
   rateLimit?: number;
   dailyQuota?: number;
@@ -35,7 +40,7 @@ export async function ensureUserKey(
   opts: EnsureUserKeyOptions = {}
 ): Promise<EnsuredUserKey> {
   // 进门归一化: 落库与回显共用同一语义(0 是合法限速值, 不再被 || 回退成 60)
-  const rateLimit = opts.rateLimit ?? 60;
+  const rateLimit = opts.rateLimit ?? DEFAULT_RATE_LIMIT;
 
   const existing = await prisma.apiKey.findFirst({
     where: { userId, name: SSO_KEY_NAME, status: 'ACTIVE', deletedAt: null },
@@ -71,8 +76,8 @@ export async function ensureUserKey(
           keyEncrypted,
           name: SSO_KEY_NAME,
           rateLimit,
-          dailyQuota: opts.dailyQuota ?? 100000,
-          monthlyQuota: opts.monthlyQuota ?? 3000000
+          dailyQuota: opts.dailyQuota ?? DEFAULT_DAILY_QUOTA,
+          monthlyQuota: opts.monthlyQuota ?? DEFAULT_MONTHLY_QUOTA
         }
       });
       keyId = row.id;
@@ -87,7 +92,7 @@ export async function ensureUserKey(
     created,
     rotated,
     rateLimit: existing?.rateLimit ?? rateLimit,
-    dailyQuota: Number(existing?.dailyQuota ?? opts.dailyQuota ?? 100000),
-    monthlyQuota: Number(existing?.monthlyQuota ?? opts.monthlyQuota ?? 3000000)
+    dailyQuota: Number(existing?.dailyQuota ?? opts.dailyQuota ?? DEFAULT_DAILY_QUOTA),
+    monthlyQuota: Number(existing?.monthlyQuota ?? opts.monthlyQuota ?? DEFAULT_MONTHLY_QUOTA)
   };
 }

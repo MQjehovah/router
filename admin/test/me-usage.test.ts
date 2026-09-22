@@ -6,6 +6,11 @@ import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import type { PrismaClient } from '@prisma/client';
 import { createAuthenticateSso } from '../src/sso-auth.js';
 import { meRoutes } from '../src/routes/me.js';
+import {
+  DEFAULT_RATE_LIMIT,
+  DEFAULT_DAILY_QUOTA,
+  DEFAULT_MONTHLY_QUOTA
+} from '../src/services/user-key.js';
 
 // 同 me-auth.test.ts: 本地最小 IdP + 真实 RS256 验签, 只把 Prisma 换成内存替身,
 // 端到端覆盖 /api/me/usage 的鉴权分支与聚合语义。
@@ -104,6 +109,7 @@ interface FakeUsageRow {
   model: string;
   tokensIn: number;
   tokensOut: number;
+  cachedTokens: number;
   cost: number;
   createdAt: Date;
 }
@@ -163,22 +169,27 @@ async function buildApp(opts: BuildOptions = {}) {
   const calls = {
     writes: 0,
     userFindUnique: 0,
-    userUpdate: 0,
+    userUpdateMany: 0,
     transactionCreate: 0,
     keyFindFirst: 0,
     keyWhere: null as any,
-    lastUserUpdate: null as any,
+    lastUserUpdateMany: null as any,
     lastTransaction: null as any,
     aggregates: [] as any[],
     groupBys: [] as any[],
     modelFindMany: 0
   };
 
-  const sumRows = (rows: FakeUsageRow[]) => ({
-    tokensIn: rows.reduce((s, r) => s + r.tokensIn, 0),
-    tokensOut: rows.reduce((s, r) => s + r.tokensOut, 0),
-    cost: rows.reduce((s, r) => s + r.cost, 0)
-  });
+  // 空聚合与 Prisma 一致返回全 null, 覆盖 toBucket 的 ?? 0 路径
+  const sumRows = (rows: FakeUsageRow[]) =>
+    rows.length === 0
+      ? { tokensIn: null, tokensOut: null, cachedTokens: null, cost: null }
+      : {
+          tokensIn: rows.reduce((s, r) => s + r.tokensIn, 0),
+          tokensOut: rows.reduce((s, r) => s + r.tokensOut, 0),
+          cachedTokens: rows.reduce((s, r) => s + r.cachedTokens, 0),
+          cost: rows.reduce((s, r) => s + r.cost, 0)
+        };
 
   const pickRows = (where: any) =>
     usage.filter(
@@ -202,13 +213,20 @@ async function buildApp(opts: BuildOptions = {}) {
         }
         return null;
       },
-      update: async (args: any) => {
-        calls.userUpdate++;
+      // 跨月重置走条件幂等更新(updateMany), 命中才写 RECHARGE 流水
+      updateMany: async (args: any) => {
+        calls.userUpdateMany++;
         calls.writes++;
-        calls.lastUserUpdate = args;
-        user!.balance = args.data.balance;
-        user!.balanceResetAt = args.data.balanceResetAt;
-        return { id: args.where.id, employeeId: user!.employeeId, ...args.data };
+        calls.lastUserUpdateMany = args;
+        if (!user || args.where.id !== user.id) return { count: 0 };
+        const lt = args.where.OR?.[1]?.balanceResetAt?.lt;
+        const missing = user.balanceResetAt === null;
+        const old =
+          user.balanceResetAt !== null && lt !== undefined && user.balanceResetAt.getTime() < new Date(lt).getTime();
+        if (!missing && !old) return { count: 0 };
+        user.balance = args.data.balance;
+        user.balanceResetAt = args.data.balanceResetAt;
+        return { count: 1 };
       }
     },
     transaction: {
@@ -312,8 +330,8 @@ test('GET /api/me/usage: 有效 token 返回摘要(模式/值域/模型只取授
     keys: [KEY],
     grants: [makeGrant(granted, 5000n, 50000n), makeGrant(revoked, 111n, 222n)],
     usage: [
-      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 100, tokensOut: 40, cost: 1, createdAt: at },
-      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 10, tokensOut: 5, cost: 2, createdAt: at }
+      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 100, tokensOut: 40, cachedTokens: 5, cost: 1, createdAt: at },
+      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 10, tokensOut: 5, cachedTokens: 0, cost: 2, createdAt: at }
     ]
   });
 
@@ -324,14 +342,14 @@ test('GET /api/me/usage: 有效 token 返回摘要(模式/值域/模型只取授
   assert.equal(body.balance, 88.5, 'balance 来自 User.balance');
   assert.equal(body.rateLimit, 30, 'rateLimit 来自该用户 sso key');
   assert.deepEqual(body.quota, { daily: 500000, monthly: 2000000 });
-  // tokens = tokensIn + tokensOut; cost 为聚合和
-  assert.deepEqual(body.today, { tokensIn: 110, tokensOut: 45, tokens: 155, cost: 3 });
-  assert.deepEqual(body.month, { tokensIn: 110, tokensOut: 45, tokens: 155, cost: 3 });
+  // tokens = tokensIn + tokensOut + cachedTokens(与 internal verify 的 sumTokens 一致); cost 为聚合和
+  assert.deepEqual(body.today, { tokensIn: 110, tokensOut: 45, tokens: 160, cost: 3 });
+  assert.deepEqual(body.month, { tokensIn: 110, tokensOut: 45, tokens: 160, cost: 3 });
   assert.deepEqual(body.models, [
     {
       name: 'gpt-4o',
-      today: { tokensIn: 110, tokensOut: 45, tokens: 155, cost: 3 },
-      month: { tokensIn: 110, tokensOut: 45, tokens: 155, cost: 3 },
+      today: { tokensIn: 110, tokensOut: 45, tokens: 160, cost: 3 },
+      month: { tokensIn: 110, tokensOut: 45, tokens: 160, cost: 3 },
       dailyQuota: 5000,
       monthlyQuota: 50000
     }
@@ -344,7 +362,7 @@ test('GET /api/me/usage: 有效 token 返回摘要(模式/值域/模型只取授
     where: { userId: USER.id, name: 'sso', status: 'ACTIVE', deletedAt: null },
     orderBy: { id: 'desc' }
   });
-  assert.equal(calls.userUpdate, 0);
+  assert.equal(calls.userUpdateMany, 0);
   assert.equal(calls.writes, 0);
   // 查询有界: 总量 2 次聚合 + 每模型分解 2 次 groupBy(不随模型数增长)
   assert.equal(calls.aggregates.length, 2);
@@ -400,8 +418,8 @@ test('GET /api/me/usage: 无 sso key 返回全 0 + 默认 quota(同月无重置�
   const body = res.json();
 
   assert.equal(body.balance, 88.5, 'balance 仍来自 User');
-  assert.equal(body.rateLimit, 60);
-  assert.deepEqual(body.quota, { daily: 100000, monthly: 3000000 });
+  assert.equal(body.rateLimit, DEFAULT_RATE_LIMIT);
+  assert.deepEqual(body.quota, { daily: DEFAULT_DAILY_QUOTA, monthly: DEFAULT_MONTHLY_QUOTA });
   assert.deepEqual(body.today, ZERO_BUCKET);
   assert.deepEqual(body.month, ZERO_BUCKET);
   assert.deepEqual(body.models, []);
@@ -410,19 +428,24 @@ test('GET /api/me/usage: 无 sso key 返回全 0 + 默认 quota(同月无重置�
   assert.equal(calls.keyFindFirst, 1);
   assert.deepEqual(calls.keyWhere.where, { userId: USER.id, name: 'sso', status: 'ACTIVE', deletedAt: null });
   assert.equal(calls.aggregates.length, 0);
-  assert.equal(calls.userUpdate, 0, '同月不应触发月度重置');
+  assert.equal(calls.userUpdateMany, 0, '同月不应触发月度重置');
   assert.equal(calls.transactionCreate, 0);
   assert.equal(calls.writes, 0, '同月 + 无 key: 不创建/轮换, 也没有任何写操作');
   await app.close();
 });
 
-test('GET /api/me/usage: 模型清单超过 10 个时截断并置 truncated', async () => {
-  const models = Array.from({ length: 12 }, (_, i) => makeModel(i + 1, `model-${i + 1}`));
-  const { app, calls } = await buildApp({
-    keys: [KEY],
-    models,
-    usage: [{ apiKeyId: KEY.id, model: 'model-1', tokensIn: 100, tokensOut: 0, cost: 1, createdAt: new Date() }]
-  });
+test('GET /api/me/usage: 模型超过 10 个时按本月花费降序截断并置 truncated', async () => {
+  const grants = Array.from({ length: 12 }, (_, i) => makeGrant(makeModel(i + 1, `model-${i + 1}`)));
+  const usage = Array.from({ length: 12 }, (_, i) => ({
+    apiKeyId: KEY.id,
+    model: `model-${i + 1}`,
+    tokensIn: 10,
+    tokensOut: 0,
+    cachedTokens: 0,
+    cost: i + 1,
+    createdAt: new Date()
+  }));
+  const { app } = await buildApp({ keys: [KEY], grants, usage });
 
   const res = await injectUsage(app, `Bearer ${await signRouterToken()}`);
   assert.equal(res.statusCode, 200);
@@ -430,17 +453,63 @@ test('GET /api/me/usage: 模型清单超过 10 个时截断并置 truncated', as
 
   assert.equal(body.truncated, true);
   assert.equal(body.models.length, 10);
-  assert.equal(body.models[0].name, 'model-1');
-  assert.equal(body.models[9].name, 'model-10');
-  // 无授权时模型用量/配额无归属(internal verify 仅在有授权时计算), 故仍为 0
-  assert.deepEqual(body.models[0].today, ZERO_BUCKET);
-  assert.deepEqual(body.models[0].month, ZERO_BUCKET);
-  assert.equal(body.models[0].dailyQuota, 0);
-  assert.equal(body.models[0].monthlyQuota, 0);
-  // 总量仍按 key 聚合
-  assert.equal(body.today.tokens, 100);
-  assert.equal(calls.modelFindMany, 1);
-  assert.equal(calls.groupBys.length, 0, '无授权时不做按模型聚合');
+  // cost desc: model-12 ... model-3, model-2/model-1 被截掉
+  assert.deepEqual(
+    body.models.map((m: { name: string }) => m.name),
+    ['model-12', 'model-11', 'model-10', 'model-9', 'model-8', 'model-7', 'model-6', 'model-5', 'model-4', 'model-3']
+  );
+  assert.equal(body.models[0].month.cost, 12);
+  assert.equal(body.models[9].month.cost, 3);
+  assert.equal(body.models[0].dailyQuota, 5000, '配额仍来自各模型授权');
+  await app.close();
+});
+
+test('GET /api/me/usage: 模型排序为 month.cost desc → month.tokens desc → name asc', async () => {
+  const alpha = makeModel(21, 'alpha');
+  const beta = makeModel(22, 'beta');
+  const delta = makeModel(24, 'delta');
+  const epsilon = makeModel(25, 'epsilon');
+  const gamma = makeModel(23, 'gamma');
+  const { app } = await buildApp({
+    keys: [KEY],
+    grants: [alpha, beta, delta, epsilon, gamma].map((m) => makeGrant(m)),
+    usage: [
+      // gamma: cost 6 最高; delta: cost 5 且 tokens 30(含 cached 5)次之;
+      // alpha/beta: cost 5 tokens 20 同名次 → name asc; epsilon: tokens 10 垫底
+      { apiKeyId: KEY.id, model: 'alpha', tokensIn: 20, tokensOut: 0, cachedTokens: 0, cost: 5, createdAt: new Date() },
+      { apiKeyId: KEY.id, model: 'beta', tokensIn: 15, tokensOut: 5, cachedTokens: 0, cost: 5, createdAt: new Date() },
+      { apiKeyId: KEY.id, model: 'delta', tokensIn: 20, tokensOut: 5, cachedTokens: 5, cost: 5, createdAt: new Date() },
+      { apiKeyId: KEY.id, model: 'epsilon', tokensIn: 10, tokensOut: 0, cachedTokens: 0, cost: 5, createdAt: new Date() },
+      { apiKeyId: KEY.id, model: 'gamma', tokensIn: 3, tokensOut: 2, cachedTokens: 0, cost: 6, createdAt: new Date() }
+    ]
+  });
+
+  const res = await injectUsage(app, `Bearer ${await signRouterToken()}`);
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+
+  assert.deepEqual(
+    body.models.map((m: { name: string }) => m.name),
+    ['gamma', 'delta', 'alpha', 'beta', 'epsilon']
+  );
+  const deltaRow = body.models.find((m: { name: string }) => m.name === 'delta');
+  assert.deepEqual(deltaRow.month, { tokensIn: 20, tokensOut: 5, tokens: 30, cost: 5 }, 'groupBy 也须计入 cachedTokens');
+  await app.close();
+});
+
+test('GET /api/me/usage: 无用量记录时聚合为 null 也归一为 0', async () => {
+  const granted = makeModel(31, 'gpt-4o');
+  const { app } = await buildApp({ keys: [KEY], grants: [makeGrant(granted)], usage: [] });
+
+  const res = await injectUsage(app, `Bearer ${await signRouterToken()}`);
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+
+  assert.deepEqual(body.today, ZERO_BUCKET);
+  assert.deepEqual(body.month, ZERO_BUCKET);
+  assert.deepEqual(body.models, [
+    { name: 'gpt-4o', today: ZERO_BUCKET, month: ZERO_BUCKET, dailyQuota: 5000, monthlyQuota: 50000 }
+  ]);
   await app.close();
 });
 
@@ -458,7 +527,7 @@ test('GET /api/me/usage: 同月不触发月度重置(无 update/流水), balance
   const res = await injectUsage(app, `Bearer ${await signRouterToken()}`);
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().balance, 42.5);
-  assert.equal(calls.userUpdate, 0);
+  assert.equal(calls.userUpdateMany, 0);
   assert.equal(calls.transactionCreate, 0);
   assert.equal(calls.writes, 0);
   await app.close();
@@ -480,10 +549,15 @@ test('GET /api/me/usage: 跨月触发月度额度重置, 响应使用重置后 b
   const body = res.json();
 
   assert.equal(body.balance, 100, '响应应使用重置后的余额(SSO_MONTHLY_BALANCE 默认 100)');
-  assert.equal(calls.userUpdate, 1);
-  assert.deepEqual(calls.lastUserUpdate.where, { id: USER.id });
-  assert.equal(calls.lastUserUpdate.data.balance, 100);
-  assert.equal(calls.lastUserUpdate.data.balanceResetAt instanceof Date, true);
+  assert.equal(calls.userUpdateMany, 1);
+  assert.equal(calls.lastUserUpdateMany.where.id, USER.id);
+  // 条件幂等: 仅当库中 balanceResetAt 缺失或早于本月起点时才命中
+  assert.deepEqual(calls.lastUserUpdateMany.where.OR, [
+    { balanceResetAt: null },
+    { balanceResetAt: { lt: new Date(now.getFullYear(), now.getMonth(), 1) } }
+  ]);
+  assert.equal(calls.lastUserUpdateMany.data.balance, 100);
+  assert.equal(calls.lastUserUpdateMany.data.balanceResetAt instanceof Date, true);
   assert.equal(calls.transactionCreate, 1);
   assert.equal(calls.lastTransaction.data.userId, USER.id);
   assert.equal(calls.lastTransaction.data.type, 'RECHARGE');
@@ -519,9 +593,9 @@ test('GET /api/me/usage: 早于今天但属本月的记录只计入 month(1 号�
   const { app } = await buildApp({
     keys: [KEY],
     usage: [
-      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 100, tokensOut: 40, cost: 1, createdAt: at },
+      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 100, tokensOut: 40, cachedTokens: 0, cost: 1, createdAt: at },
       // 本月 1 日 0 点的记录: 恒在 month 窗口内; 今天不是 1 号时早于 today 窗口
-      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 10, tokensOut: 5, cost: 2, createdAt: monthStartOf(at) }
+      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 10, tokensOut: 5, cachedTokens: 0, cost: 2, createdAt: monthStartOf(at) }
     ]
   });
 
@@ -542,8 +616,8 @@ test('GET /api/me/usage: 上月记录不计入 today 也不计入 month(自然�
   const { app } = await buildApp({
     keys: [KEY],
     usage: [
-      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 100, tokensOut: 40, cost: 1, createdAt: at },
-      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 7, tokensOut: 3, cost: 5, createdAt: prevMonthEnd }
+      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 100, tokensOut: 40, cachedTokens: 0, cost: 1, createdAt: at },
+      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 7, tokensOut: 3, cachedTokens: 0, cost: 5, createdAt: prevMonthEnd }
     ]
   });
 
@@ -554,5 +628,34 @@ test('GET /api/me/usage: 上月记录不计入 today 也不计入 month(自然�
   const currentOnly = { tokensIn: 100, tokensOut: 40, tokens: 140, cost: 1 };
   assert.deepEqual(body.today, currentOnly);
   assert.deepEqual(body.month, currentOnly);
+  await app.close();
+});
+
+test('GET /api/me/usage: 无授权时列出全部 ACTIVE 模型, 行内用量/配额为 0 且不做分组聚合', async () => {
+  const models = [makeModel(1, 'm-1'), makeModel(2, 'm-2', { providerStatus: 'INACTIVE' }), makeModel(3, 'm-3')];
+  const { app, calls } = await buildApp({
+    keys: [KEY],
+    models,
+    usage: [{ apiKeyId: KEY.id, model: 'm-1', tokensIn: 50, tokensOut: 0, cachedTokens: 0, cost: 9, createdAt: new Date() }]
+  });
+
+  const res = await injectUsage(app, `Bearer ${await signRouterToken()}`);
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+
+  // 无授权: internal verify 仅在授权存在时计算模型配额与用量, 故模型行统一为 0; provider 非 ACTIVE 的过滤掉
+  assert.deepEqual(
+    body.models.map((m: { name: string }) => m.name),
+    ['m-1', 'm-3']
+  );
+  assert.deepEqual(body.models[0], {
+    name: 'm-1',
+    today: ZERO_BUCKET,
+    month: ZERO_BUCKET,
+    dailyQuota: 0,
+    monthlyQuota: 0
+  });
+  assert.equal(calls.modelFindMany, 1, '无授权时走全量 ACTIVE 模型清单');
+  assert.equal(calls.groupBys.length, 0, '无授权时不做按模型聚合');
   await app.close();
 });
