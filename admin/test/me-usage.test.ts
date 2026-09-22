@@ -660,21 +660,23 @@ test('GET /api/me/usage: 无授权时列出全部 ACTIVE 模型, 行内用量/�
   await app.close();
 });
 
-test(`GET /api/me/usage: 每用户超过 ${ME_USAGE_RATE_LIMIT} 次/分钟返回 429 且不触达查询`, async () => {
-  // 换一个用户 id: 限流键为 me:usage:<user.id>, 与本文件其它用例(用户 8)互不干扰;
+// 限流键为 me:usage:<user.id>, 模块级限流状态在同文件内跨用例共享:
+// 限流用例用独立自增 user id, 不依赖其它用例未用满的预算。
+let rateLimitUserIdSeq = 1000;
+function freshRateLimitUser(): FakeUser {
   // balanceResetAt 设为本月, 排除月度重置写库对「不触达」断言的干扰
-  const limitedUser: FakeUser = {
-    ...USER,
-    id: 10,
-    employeeId: 'E003',
-    email: null,
-    balanceResetAt: new Date()
-  };
+  const id = rateLimitUserIdSeq++;
+  return { ...USER, id, employeeId: `E-RL-${id}`, email: null, balanceResetAt: new Date() };
+}
+
+test(`GET /api/me/usage: 每用户超过 ${ME_USAGE_RATE_LIMIT} 次/分钟返回 429(带 Retry-After)且不触达查询/写入`, async () => {
+  assert.equal(ME_USAGE_RATE_LIMIT, 60, '限流常量被改动时必须让本用例失败, 防止循环空转');
+  const limitedUser = freshRateLimitUser();
   const { app, calls } = await buildApp({
     user: limitedUser,
     keys: [{ ...KEY, userId: limitedUser.id }]
   });
-  const auth = `Bearer ${await signRouterToken({ employeeId: 'E003' })}`;
+  const auth = `Bearer ${await signRouterToken({ employeeId: limitedUser.employeeId })}`;
 
   for (let i = 0; i < ME_USAGE_RATE_LIMIT; i++) {
     assert.equal((await injectUsage(app, auth)).statusCode, 200, `第 ${i + 1} 次请求应在限额内`);
@@ -682,14 +684,22 @@ test(`GET /api/me/usage: 每用户超过 ${ME_USAGE_RATE_LIMIT} 次/分钟返回
   const budgetUsed = {
     aggregates: calls.aggregates.length,
     keyFindFirst: calls.keyFindFirst,
-    modelFindMany: calls.modelFindMany
+    modelFindMany: calls.modelFindMany,
+    writes: calls.writes
   };
 
   const res = await injectUsage(app, auth);
   assert.equal(res.statusCode, 429);
   assert.deepEqual(res.json(), { error: 'Too Many Requests' });
+  const retryAfter = Number(res.headers['retry-after']);
+  assert.ok(
+    Number.isInteger(retryAfter) && retryAfter > 0,
+    `应带正整数 Retry-After, 实际: ${res.headers['retry-after']}`
+  );
+  assert.ok(retryAfter <= 60, 'Retry-After 不应超过窗口 60s');
   assert.equal(calls.aggregates.length, budgetUsed.aggregates, '429 不应再聚合用量');
   assert.equal(calls.keyFindFirst, budgetUsed.keyFindFirst, '429 不应再查 key');
   assert.equal(calls.modelFindMany, budgetUsed.modelFindMany, '429 不应再查模型');
+  assert.equal(calls.writes, budgetUsed.writes, '429 不应写库');
   await app.close();
 });

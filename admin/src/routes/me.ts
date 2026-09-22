@@ -1,4 +1,4 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { requireSsoUser } from '../sso-auth.js';
 import {
@@ -18,6 +18,15 @@ const prisma = new PrismaClient();
 export const ME_USAGE_RATE_LIMIT = 60;
 export const ME_KEY_RATE_LIMIT = 30;
 const RATE_LIMIT_WINDOW_MS = 60_000;
+
+/** 超限则回 429 并设置 Retry-After(秒, 与 gateway 侧限流对齐), 返回 true; 未超限返回 false */
+function rejectIfRateLimited(reply: FastifyReply, key: string, limit: number): boolean {
+  const retryAfterMs = allow(key, limit, RATE_LIMIT_WINDOW_MS);
+  if (retryAfterMs === 0) return false;
+  reply.header('Retry-After', String(Math.ceil(retryAfterMs / 1000)));
+  reply.status(429).send({ error: 'Too Many Requests' });
+  return true;
+}
 
 /** 按模型分解上限(与 dashboard 的 MAX_MODEL_BREAKDOWN 一致); 每模型用 groupBy 一次取回, 不随模型数放大 */
 const MAX_MODEL_BREAKDOWN = 10;
@@ -79,10 +88,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   fastify.get('/api/me/usage', { preHandler: [fastify.authenticateSso] }, async (req, reply): Promise<UsageSummary | void> => {
     const user = requireSsoUser(req);
 
-    if (!allow(`me:usage:${user.id}`, ME_USAGE_RATE_LIMIT, RATE_LIMIT_WINDOW_MS)) {
-      reply.status(429).send({ error: 'Too Many Requests' });
-      return;
-    }
+    if (rejectIfRateLimited(reply, `me:usage:${user.id}`, ME_USAGE_RATE_LIMIT)) return;
 
     const db = fastify.prisma ?? prisma;
 
@@ -200,9 +206,7 @@ export async function meRoutes(fastify: FastifyInstance) {
   fastify.get('/api/me/key', { preHandler: [fastify.authenticateSso] }, async (req, reply) => {
     const user = requireSsoUser(req);
 
-    if (!allow(`me:key:${user.id}`, ME_KEY_RATE_LIMIT, RATE_LIMIT_WINDOW_MS)) {
-      return reply.status(429).send({ error: 'Too Many Requests' });
-    }
+    if (rejectIfRateLimited(reply, `me:key:${user.id}`, ME_KEY_RATE_LIMIT)) return;
 
     const ensured = await ensureUserKey(fastify.prisma ?? prisma, user.id);
     return {

@@ -11,16 +11,10 @@ const ENCRYPTION_KEY = encryptionKey();
 /// SSO 自动开通的 key 统一命名，/api/me/key 按该名字 find-or-create
 export const SSO_KEY_NAME = 'sso';
 
-/** 未显式传参/无 key 回显时的默认限流与配额(与 ApiKey schema 默认值一致) */
+/** 无 key 时创建、复用回显时的默认限流与配额(与 ApiKey schema 默认值一致) */
 export const DEFAULT_RATE_LIMIT = 60;
 export const DEFAULT_DAILY_QUOTA = 100000;
 export const DEFAULT_MONTHLY_QUOTA = 3000000;
-
-export interface EnsureUserKeyOptions {
-  rateLimit?: number;
-  dailyQuota?: number;
-  monthlyQuota?: number;
-}
 
 export interface EnsuredUserKey {
   key: string;
@@ -34,14 +28,7 @@ export interface EnsuredUserKey {
 
 /// 按用户 find-or-create key，保证幂等：已有则重复发放同一把
 /// （逻辑删除的 key 不参与复用，否则会发出一把已失效的密钥）
-export async function ensureUserKey(
-  prisma: PrismaClient,
-  userId: number,
-  opts: EnsureUserKeyOptions = {}
-): Promise<EnsuredUserKey> {
-  // 进门归一化: 落库与回显共用同一语义(0 是合法限速值, 不再被 || 回退成 60)
-  const rateLimit = opts.rateLimit ?? DEFAULT_RATE_LIMIT;
-
+export async function ensureUserKey(prisma: PrismaClient, userId: number): Promise<EnsuredUserKey> {
   const existing = await prisma.apiKey.findFirst({
     where: { userId, name: SSO_KEY_NAME, status: 'ACTIVE', deletedAt: null },
     orderBy: { id: 'desc' }
@@ -75,9 +62,9 @@ export async function ensureUserKey(
           keyHash,
           keyEncrypted,
           name: SSO_KEY_NAME,
-          rateLimit,
-          dailyQuota: opts.dailyQuota ?? DEFAULT_DAILY_QUOTA,
-          monthlyQuota: opts.monthlyQuota ?? DEFAULT_MONTHLY_QUOTA
+          rateLimit: DEFAULT_RATE_LIMIT,
+          dailyQuota: DEFAULT_DAILY_QUOTA,
+          monthlyQuota: DEFAULT_MONTHLY_QUOTA
         }
       });
       keyId = row.id;
@@ -91,8 +78,8 @@ export async function ensureUserKey(
     keyId,
     created,
     rotated,
-    rateLimit: existing?.rateLimit ?? rateLimit,
-    dailyQuota: Number(existing?.dailyQuota ?? opts.dailyQuota ?? DEFAULT_DAILY_QUOTA),
-    monthlyQuota: Number(existing?.monthlyQuota ?? opts.monthlyQuota ?? DEFAULT_MONTHLY_QUOTA)
+    rateLimit: existing?.rateLimit ?? DEFAULT_RATE_LIMIT,
+    dailyQuota: Number(existing?.dailyQuota ?? DEFAULT_DAILY_QUOTA),
+    monthlyQuota: Number(existing?.monthlyQuota ?? DEFAULT_MONTHLY_QUOTA)
   };
 }

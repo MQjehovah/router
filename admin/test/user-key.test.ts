@@ -5,7 +5,7 @@ import type { PrismaClient } from '@prisma/client';
 import { encrypt, decrypt } from '../src/crypto-utils.js';
 import { encryptionKey } from '../src/env.js';
 import { keyVerifyCache } from '../src/key-cache.js';
-import { ensureUserKey, SSO_KEY_NAME } from '../src/services/user-key.js';
+import { ensureUserKey, SSO_KEY_NAME, DEFAULT_RATE_LIMIT, DEFAULT_DAILY_QUOTA, DEFAULT_MONTHLY_QUOTA } from '../src/services/user-key.js';
 
 const ENCRYPTION_KEY = encryptionKey();
 
@@ -50,19 +50,19 @@ function fakePrisma(existing: KeyRow | null) {
   return { prisma: prisma as unknown as PrismaClient, calls };
 }
 
-test('ensureUserKey: 无 key 时创建新 key(created=true, sk- 前缀, 落默认/传入额度)', async () => {
+test('ensureUserKey: 无 key 时创建新 key(created=true, sk- 前缀, 落默认额度)', async () => {
   const { prisma, calls } = fakePrisma(null);
   keyVerifyCache.set('probe-create', { valid: false, reason: 'stale' });
 
-  const result = await ensureUserKey(prisma, 42, { rateLimit: 30, dailyQuota: 500, monthlyQuota: 900 });
+  const result = await ensureUserKey(prisma, 42);
 
   assert.equal(result.created, true);
   assert.equal(result.rotated, false);
   assert.match(result.key, /^sk-[0-9a-f]{64}$/);
   assert.equal(result.keyId, 101);
-  assert.equal(result.rateLimit, 30);
-  assert.equal(result.dailyQuota, 500);
-  assert.equal(result.monthlyQuota, 900);
+  assert.equal(result.rateLimit, DEFAULT_RATE_LIMIT);
+  assert.equal(result.dailyQuota, DEFAULT_DAILY_QUOTA);
+  assert.equal(result.monthlyQuota, DEFAULT_MONTHLY_QUOTA);
 
   assert.deepEqual(calls.lastWhere, {
     where: { userId: 42, name: SSO_KEY_NAME, status: 'ACTIVE', deletedAt: null },
@@ -72,34 +72,12 @@ test('ensureUserKey: 无 key 时创建新 key(created=true, sk- 前缀, 落默�
   assert.equal(calls.update, 0);
   assert.equal(calls.lastCreate.data.userId, 42);
   assert.equal(calls.lastCreate.data.name, SSO_KEY_NAME);
-  assert.equal(calls.lastCreate.data.rateLimit, 30);
-  assert.equal(calls.lastCreate.data.dailyQuota, 500);
-  assert.equal(calls.lastCreate.data.monthlyQuota, 900);
+  assert.equal(calls.lastCreate.data.rateLimit, DEFAULT_RATE_LIMIT);
+  assert.equal(calls.lastCreate.data.dailyQuota, DEFAULT_DAILY_QUOTA);
+  assert.equal(calls.lastCreate.data.monthlyQuota, DEFAULT_MONTHLY_QUOTA);
   assert.ok(bcrypt.compareSync(result.key, calls.lastCreate.data.keyHash), 'keyHash 应可校验明文 key');
   assert.equal(decrypt(calls.lastCreate.data.keyEncrypted, ENCRYPTION_KEY), result.key);
   assert.equal(keyVerifyCache.get('probe-create'), undefined, '创建后应清空 key 校验缓存');
-});
-
-test('ensureUserKey: 无 key 且不传额度时用默认值(60/100000/3000000)', async () => {
-  const { prisma, calls } = fakePrisma(null);
-
-  const result = await ensureUserKey(prisma, 7);
-
-  assert.equal(result.rateLimit, 60);
-  assert.equal(result.dailyQuota, 100000);
-  assert.equal(result.monthlyQuota, 3000000);
-  assert.equal(calls.lastCreate.data.rateLimit, 60);
-  assert.equal(calls.lastCreate.data.dailyQuota, 100000);
-  assert.equal(calls.lastCreate.data.monthlyQuota, 3000000);
-});
-
-test('ensureUserKey: rateLimit=0 是合法值, 落库与回显一致(不再回退 60)', async () => {
-  const { prisma, calls } = fakePrisma(null);
-
-  const result = await ensureUserKey(prisma, 7, { rateLimit: 0 });
-
-  assert.equal(result.rateLimit, 0);
-  assert.equal(calls.lastCreate.data.rateLimit, 0);
 });
 
 test('ensureUserKey: 已有 keyEncrypted 时复用同一把(created=false, 无新行)', async () => {
@@ -113,7 +91,7 @@ test('ensureUserKey: 已有 keyEncrypted 时复用同一把(created=false, 无�
   const { prisma, calls } = fakePrisma(existing);
   keyVerifyCache.set('probe-reuse', { valid: false, reason: 'keep' });
 
-  const result = await ensureUserKey(prisma, 42, { rateLimit: 999 });
+  const result = await ensureUserKey(prisma, 42);
 
   assert.equal(result.key, 'sk-existing-reused');
   assert.equal(result.keyId, 7);
