@@ -64,6 +64,7 @@ interface FakeUser {
   email: string | null;
   role: 'ADMIN' | 'USER';
   balance: number;
+  balanceResetAt: Date | null;
 }
 
 const USER: FakeUser = {
@@ -72,7 +73,8 @@ const USER: FakeUser = {
   name: '张三',
   email: 'zhangsan@example.com',
   role: 'USER',
-  balance: 88.5
+  balance: 88.5,
+  balanceResetAt: null
 };
 
 interface FakeKey {
@@ -138,15 +140,22 @@ function makeGrant(model: FakeModel, dailyQuota = 5000n, monthlyQuota = 50000n):
 
 interface BuildOptions {
   user?: FakeUser | null;
-  key?: FakeKey | null;
+  /// 库中的 key 集合; findFirst 替身按 where(userId/name/status/deletedAt) 过滤后取 id 最大者
+  keys?: FakeKey[];
   usage?: FakeUsageRow[];
   grants?: FakeGrant[];
   models?: FakeModel[];
 }
 
 async function buildApp(opts: BuildOptions = {}) {
-  const user = opts.user === undefined ? USER : opts.user;
-  const key = opts.key === undefined ? null : opts.key;
+  // 默认同月已重置(balanceResetAt=本月), 避免无关用例意外触发跨月写库; 需要跨月场景时显式传入
+  const user =
+    opts.user === undefined
+      ? { ...USER, balanceResetAt: new Date() }
+      : opts.user === null
+        ? null
+        : { ...opts.user };
+  const keys = opts.keys ?? [];
   const usage = opts.usage ?? [];
   const grants = opts.grants ?? [];
   const models = opts.models ?? [];
@@ -154,8 +163,12 @@ async function buildApp(opts: BuildOptions = {}) {
   const calls = {
     writes: 0,
     userFindUnique: 0,
+    userUpdate: 0,
+    transactionCreate: 0,
     keyFindFirst: 0,
     keyWhere: null as any,
+    lastUserUpdate: null as any,
+    lastTransaction: null as any,
     aggregates: [] as any[],
     groupBys: [] as any[],
     modelFindMany: 0
@@ -177,16 +190,50 @@ async function buildApp(opts: BuildOptions = {}) {
 
   const prisma = {
     user: {
+      // authenticateSso 按 employeeId 查; usage handler 按 id 查(取 balanceResetAt 触发月度重置)
       findUnique: async (args: any) => {
         calls.userFindUnique++;
-        return user && args.where.employeeId === user.employeeId ? user : null;
+        if (!user) return null;
+        if (args.where.employeeId !== undefined) {
+          return args.where.employeeId === user.employeeId ? user : null;
+        }
+        if (args.where.id !== undefined) {
+          return args.where.id === user.id ? user : null;
+        }
+        return null;
+      },
+      update: async (args: any) => {
+        calls.userUpdate++;
+        calls.writes++;
+        calls.lastUserUpdate = args;
+        user!.balance = args.data.balance;
+        user!.balanceResetAt = args.data.balanceResetAt;
+        return { id: args.where.id, employeeId: user!.employeeId, ...args.data };
+      }
+    },
+    transaction: {
+      create: async (args: any) => {
+        calls.transactionCreate++;
+        calls.writes++;
+        calls.lastTransaction = args;
+        return { id: 1, ...args.data };
       }
     },
     apiKey: {
       findFirst: async (args: any) => {
         calls.keyFindFirst++;
         calls.keyWhere = args;
-        return key;
+        const { where } = args;
+        const matched = keys
+          .filter(
+            (k) =>
+              k.userId === where.userId &&
+              k.name === where.name &&
+              k.status === where.status &&
+              k.deletedAt === where.deletedAt
+          )
+          .sort((a, b) => b.id - a.id);
+        return matched[0] ?? null;
       },
       create: async () => {
         calls.writes++;
@@ -262,7 +309,7 @@ test('GET /api/me/usage: 有效 token 返回摘要(模式/值域/模型只取授
   const granted = makeModel(11, 'gpt-4o');
   const revoked = makeModel(12, 'gpt-4o-mini', { modelStatus: 'INACTIVE' });
   const { app, calls } = await buildApp({
-    key: KEY,
+    keys: [KEY],
     grants: [makeGrant(granted, 5000n, 50000n), makeGrant(revoked, 111n, 222n)],
     usage: [
       { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 100, tokensOut: 40, cost: 1, createdAt: at },
@@ -292,11 +339,12 @@ test('GET /api/me/usage: 有效 token 返回摘要(模式/值域/模型只取授
   assert.equal(body.truncated, false);
   assert.ok(!Number.isNaN(Date.parse(body.fetchedAt)), 'fetchedAt 应是服务端 ISO 时间');
 
-  // 归属范围: 查找条件与 ensureUserKey 对齐; 只读, 无任何写操作
+  // 归属范围: 查找条件与 ensureUserKey 对齐; 默认用户同月, 故重置幂等无写, 也无任何 key 写操作
   assert.deepEqual(calls.keyWhere, {
     where: { userId: USER.id, name: 'sso', status: 'ACTIVE', deletedAt: null },
     orderBy: { id: 'desc' }
   });
+  assert.equal(calls.userUpdate, 0);
   assert.equal(calls.writes, 0);
   // 查询有界: 总量 2 次聚合 + 每模型分解 2 次 groupBy(不随模型数增长)
   assert.equal(calls.aggregates.length, 2);
@@ -311,7 +359,7 @@ test('GET /api/me/usage: 有效 token 返回摘要(模式/值域/模型只取授
 });
 
 test('GET /api/me/usage: 无 token 返回 401 且不查用量', async () => {
-  const { app, calls } = await buildApp({ key: KEY });
+  const { app, calls } = await buildApp({ keys: [KEY] });
   const res = await injectUsage(app);
   assert.equal(res.statusCode, 401);
   assert.deepEqual(res.json(), { error: 'Unauthorized' });
@@ -322,7 +370,7 @@ test('GET /api/me/usage: 无 token 返回 401 且不查用量', async () => {
 });
 
 test('GET /api/me/usage: aud 不符的 token 返回 401 且不查用量', async () => {
-  const { app, calls } = await buildApp({ key: KEY });
+  const { app, calls } = await buildApp({ keys: [KEY] });
   const token = await signRouterToken({ audience: 'other-service' });
   const res = await injectUsage(app, `Bearer ${token}`);
   assert.equal(res.statusCode, 401);
@@ -332,7 +380,7 @@ test('GET /api/me/usage: aud 不符的 token 返回 401 且不查用量', async 
 });
 
 test('GET /api/me/usage: 工号未知返回 403(用户未开通)', async () => {
-  const { app, calls } = await buildApp({ user: null, key: KEY });
+  const { app, calls } = await buildApp({ user: null, keys: [KEY] });
   const token = await signRouterToken({ employeeId: 'E404' });
   const res = await injectUsage(app, `Bearer ${token}`);
   assert.equal(res.statusCode, 403);
@@ -341,8 +389,12 @@ test('GET /api/me/usage: 工号未知返回 403(用户未开通)', async () => {
   await app.close();
 });
 
-test('GET /api/me/usage: 无 sso key 返回全 0 + 默认 quota, 且不产生写操作', async () => {
-  const { app, calls } = await buildApp({ key: null });
+test('GET /api/me/usage: 无 sso key 返回全 0 + 默认 quota(同月无重置写, 且不创建/轮换 key)', async () => {
+  // 前提: balanceResetAt 设为本月, 月度重置幂等; 否则会按旧链路口径写一笔 RECHARGE(见跨月用例)
+  const { app, calls } = await buildApp({
+    user: { ...USER, balanceResetAt: new Date() },
+    keys: []
+  });
   const res = await injectUsage(app, `Bearer ${await signRouterToken()}`);
   assert.equal(res.statusCode, 200);
   const body = res.json();
@@ -358,14 +410,16 @@ test('GET /api/me/usage: 无 sso key 返回全 0 + 默认 quota, 且不产生写
   assert.equal(calls.keyFindFirst, 1);
   assert.deepEqual(calls.keyWhere.where, { userId: USER.id, name: 'sso', status: 'ACTIVE', deletedAt: null });
   assert.equal(calls.aggregates.length, 0);
-  assert.equal(calls.writes, 0, '无 key 时只读, 绝不创建/轮换');
+  assert.equal(calls.userUpdate, 0, '同月不应触发月度重置');
+  assert.equal(calls.transactionCreate, 0);
+  assert.equal(calls.writes, 0, '同月 + 无 key: 不创建/轮换, 也没有任何写操作');
   await app.close();
 });
 
 test('GET /api/me/usage: 模型清单超过 10 个时截断并置 truncated', async () => {
   const models = Array.from({ length: 12 }, (_, i) => makeModel(i + 1, `model-${i + 1}`));
   const { app, calls } = await buildApp({
-    key: KEY,
+    keys: [KEY],
     models,
     usage: [{ apiKeyId: KEY.id, model: 'model-1', tokensIn: 100, tokensOut: 0, cost: 1, createdAt: new Date() }]
   });
@@ -387,5 +441,118 @@ test('GET /api/me/usage: 模型清单超过 10 个时截断并置 truncated', as
   assert.equal(body.today.tokens, 100);
   assert.equal(calls.modelFindMany, 1);
   assert.equal(calls.groupBys.length, 0, '无授权时不做按模型聚合');
+  await app.close();
+});
+
+test('GET /api/me/usage: 同月不触发月度重置(无 update/流水), balance 保持原值', async () => {
+  const now = new Date();
+  const { app, calls } = await buildApp({
+    user: {
+      ...USER,
+      balance: 42.5,
+      balanceResetAt: new Date(now.getFullYear(), now.getMonth(), 1)
+    },
+    keys: []
+  });
+
+  const res = await injectUsage(app, `Bearer ${await signRouterToken()}`);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().balance, 42.5);
+  assert.equal(calls.userUpdate, 0);
+  assert.equal(calls.transactionCreate, 0);
+  assert.equal(calls.writes, 0);
+  await app.close();
+});
+
+test('GET /api/me/usage: 跨月触发月度额度重置, 响应使用重置后 balance', async () => {
+  const now = new Date();
+  const { app, calls } = await buildApp({
+    user: {
+      ...USER,
+      balance: 3,
+      balanceResetAt: new Date(now.getFullYear(), now.getMonth() - 1, 15)
+    },
+    keys: [KEY]
+  });
+
+  const res = await injectUsage(app, `Bearer ${await signRouterToken()}`);
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+
+  assert.equal(body.balance, 100, '响应应使用重置后的余额(SSO_MONTHLY_BALANCE 默认 100)');
+  assert.equal(calls.userUpdate, 1);
+  assert.deepEqual(calls.lastUserUpdate.where, { id: USER.id });
+  assert.equal(calls.lastUserUpdate.data.balance, 100);
+  assert.equal(calls.lastUserUpdate.data.balanceResetAt instanceof Date, true);
+  assert.equal(calls.transactionCreate, 1);
+  assert.equal(calls.lastTransaction.data.userId, USER.id);
+  assert.equal(calls.lastTransaction.data.type, 'RECHARGE');
+  assert.equal(calls.lastTransaction.data.amount, 100);
+  assert.equal(calls.lastTransaction.data.balance, 100);
+  assert.match(calls.lastTransaction.data.description, /^每月额度重置\(\d{4}-\d{2}\)$/);
+  await app.close();
+});
+
+test('GET /api/me/usage: 存在他人/非 sso/已删 key 时仍只认自己的有效 sso key', async () => {
+  // 干扰项的 id 都比 KEY 大: 若替身/实现不按 where 过滤或忽略 orderBy 语义, 就会取错 key
+  const decoys: FakeKey[] = [
+    { id: 71, userId: 999, name: 'sso', status: 'ACTIVE', deletedAt: null, rateLimit: 11, dailyQuota: 1n, monthlyQuota: 1n },
+    { id: 72, userId: USER.id, name: 'sso', status: 'INACTIVE', deletedAt: null, rateLimit: 12, dailyQuota: 2n, monthlyQuota: 2n },
+    { id: 73, userId: USER.id, name: 'sso', status: 'ACTIVE', deletedAt: new Date(), rateLimit: 13, dailyQuota: 3n, monthlyQuota: 3n },
+    { id: 74, userId: USER.id, name: 'console', status: 'ACTIVE', deletedAt: null, rateLimit: 14, dailyQuota: 4n, monthlyQuota: 4n }
+  ];
+  const { app, calls } = await buildApp({ keys: [...decoys, KEY] });
+
+  const res = await injectUsage(app, `Bearer ${await signRouterToken()}`);
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+
+  assert.equal(calls.keyFindFirst, 1);
+  assert.equal(body.rateLimit, KEY.rateLimit);
+  assert.deepEqual(body.quota, { daily: 500000, monthly: 2000000 });
+  await app.close();
+});
+
+test('GET /api/me/usage: 早于今天但属本月的记录只计入 month(1 号时日月窗口重合)', async () => {
+  const at = new Date();
+  const firstOfMonth = at.getDate() === 1;
+  const { app } = await buildApp({
+    keys: [KEY],
+    usage: [
+      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 100, tokensOut: 40, cost: 1, createdAt: at },
+      // 本月 1 日 0 点的记录: 恒在 month 窗口内; 今天不是 1 号时早于 today 窗口
+      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 10, tokensOut: 5, cost: 2, createdAt: monthStartOf(at) }
+    ]
+  });
+
+  const res = await injectUsage(app, `Bearer ${await signRouterToken()}`);
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+
+  const todayOnly = { tokensIn: 100, tokensOut: 40, tokens: 140, cost: 1 };
+  const todayAndMonth = { tokensIn: 110, tokensOut: 45, tokens: 155, cost: 3 };
+  assert.deepEqual(body.today, firstOfMonth ? todayAndMonth : todayOnly);
+  assert.deepEqual(body.month, todayAndMonth);
+  await app.close();
+});
+
+test('GET /api/me/usage: 上月记录不计入 today 也不计入 month(自然月窗口)', async () => {
+  const at = new Date();
+  const prevMonthEnd = new Date(monthStartOf(at).getTime() - 1);
+  const { app } = await buildApp({
+    keys: [KEY],
+    usage: [
+      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 100, tokensOut: 40, cost: 1, createdAt: at },
+      { apiKeyId: KEY.id, model: 'gpt-4o', tokensIn: 7, tokensOut: 3, cost: 5, createdAt: prevMonthEnd }
+    ]
+  });
+
+  const res = await injectUsage(app, `Bearer ${await signRouterToken()}`);
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+
+  const currentOnly = { tokensIn: 100, tokensOut: 40, tokens: 140, cost: 1 };
+  assert.deepEqual(body.today, currentOnly);
+  assert.deepEqual(body.month, currentOnly);
   await app.close();
 });

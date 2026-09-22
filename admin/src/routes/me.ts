@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { requireSsoUser } from '../sso-auth.js';
 import { ensureUserKey, SSO_KEY_NAME } from '../services/user-key.js';
+import { ensureMonthlyBalance } from '../services/monthly-balance.js';
 
 /** 路由内优先使用 index.ts 装配的共享客户端; 测试可注入替身 */
 const prisma = new PrismaClient();
@@ -69,12 +70,19 @@ export async function meRoutes(fastify: FastifyInstance) {
     const db = fastify.prisma ?? prisma;
     const user = requireSsoUser(req);
 
+    // 与旧链路(/internal/keys/verify)一致: 先跑跨月余额重置(仅员工账号; 同月幂等无写), 再用重置后的余额组装响应
+    const account = await db.user.findUnique({
+      where: { id: user.id },
+      select: { id: true, balance: true, balanceResetAt: true, employeeId: true }
+    });
+    const current = await ensureMonthlyBalance(db, account);
+
     const now = new Date();
     const todayStart = new Date(now);
     todayStart.setHours(0, 0, 0, 0);
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // 归属范围: 与 ensureUserKey 的查找一致(只看该用户的 sso key); 只读, 绝不创建/轮换
+    // 归属范围: 与 ensureUserKey 的查找一致(只看该用户的 sso key); 绝不创建/轮换
     const ssoKey = await db.apiKey.findFirst({
       where: { userId: user.id, name: SSO_KEY_NAME, status: 'ACTIVE', deletedAt: null },
       orderBy: { id: 'desc' }
@@ -151,7 +159,7 @@ export async function meRoutes(fastify: FastifyInstance) {
     const truncated = modelRows.length > MAX_MODEL_BREAKDOWN;
 
     return {
-      balance: Number(user.balance),
+      balance: Number(current?.balance ?? user.balance),
       rateLimit: ssoKey ? ssoKey.rateLimit : DEFAULT_RATE_LIMIT,
       quota: {
         daily: ssoKey ? Number(ssoKey.dailyQuota) : DEFAULT_DAILY_QUOTA,
