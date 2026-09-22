@@ -8,7 +8,7 @@ import { encryptionKey } from '../env.js';
 /** 启动即校验:生产环境缺失/弱值会让进程在模块加载时立刻失败;开发回退开发密钥。 */
 const ENCRYPTION_KEY = encryptionKey();
 
-/// SSO 自动开通的 key 统一命名，交换端点按该名字 find-or-create
+/// SSO 自动开通的 key 统一命名，/api/me/key 按该名字 find-or-create
 export const SSO_KEY_NAME = 'sso';
 
 /** 未显式传参/无 key 回显时的默认限流与配额(与 ApiKey schema 默认值一致) */

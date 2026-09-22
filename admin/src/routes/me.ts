@@ -9,9 +9,15 @@ import {
   DEFAULT_MONTHLY_QUOTA
 } from '../services/user-key.js';
 import { ensureMonthlyBalance } from '../services/monthly-balance.js';
+import { allow } from '../ratelimit.js';
 
 /** 路由内优先使用 index.ts 装配的共享客户端; 测试可注入替身 */
 const prisma = new PrismaClient();
+
+/** /api/me/* 每用户限流(键为 me:<route>:<user.id>); 鉴权通过后才计数 */
+export const ME_USAGE_RATE_LIMIT = 60;
+export const ME_KEY_RATE_LIMIT = 30;
+const RATE_LIMIT_WINDOW_MS = 60_000;
 
 /** 按模型分解上限(与 dashboard 的 MAX_MODEL_BREAKDOWN 一致); 每模型用 groupBy 一次取回, 不随模型数放大 */
 const MAX_MODEL_BREAKDOWN = 10;
@@ -70,9 +76,15 @@ function toBucket(sum: AggSum | null | undefined): UsageBucket {
 }
 
 export async function meRoutes(fastify: FastifyInstance) {
-  fastify.get('/api/me/usage', { preHandler: [fastify.authenticateSso] }, async (req): Promise<UsageSummary> => {
-    const db = fastify.prisma ?? prisma;
+  fastify.get('/api/me/usage', { preHandler: [fastify.authenticateSso] }, async (req, reply): Promise<UsageSummary | void> => {
     const user = requireSsoUser(req);
+
+    if (!allow(`me:usage:${user.id}`, ME_USAGE_RATE_LIMIT, RATE_LIMIT_WINDOW_MS)) {
+      reply.status(429).send({ error: 'Too Many Requests' });
+      return;
+    }
+
+    const db = fastify.prisma ?? prisma;
 
     // 与旧链路(/internal/keys/verify)一致: 先跑跨月余额重置(仅员工账号; 同月幂等无写), 再用重置后的余额组装响应
     const account = await db.user.findUnique({
@@ -185,8 +197,13 @@ export async function meRoutes(fastify: FastifyInstance) {
     };
   });
 
-  fastify.get('/api/me/key', { preHandler: [fastify.authenticateSso] }, async (req) => {
+  fastify.get('/api/me/key', { preHandler: [fastify.authenticateSso] }, async (req, reply) => {
     const user = requireSsoUser(req);
+
+    if (!allow(`me:key:${user.id}`, ME_KEY_RATE_LIMIT, RATE_LIMIT_WINDOW_MS)) {
+      return reply.status(429).send({ error: 'Too Many Requests' });
+    }
+
     const ensured = await ensureUserKey(fastify.prisma ?? prisma, user.id);
     return {
       ...ensured,

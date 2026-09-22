@@ -5,7 +5,7 @@ import Fastify from 'fastify';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import type { PrismaClient } from '@prisma/client';
 import { createAuthenticateSso } from '../src/sso-auth.js';
-import { meRoutes } from '../src/routes/me.js';
+import { meRoutes, ME_KEY_RATE_LIMIT } from '../src/routes/me.js';
 
 // 同 me-auth.test.ts: 本地最小 IdP + 真实 RS256 验签; Prisma 替身保留最小的 apiKey 内存表,
 // 以验证「首次创建 / 再次复用」的幂等语义。
@@ -211,5 +211,24 @@ test('GET /api/me/key: 未知工号返回 403(用户未开通)', async () => {
   assert.deepEqual(res.json(), { error: 'Forbidden', detail: '用户未开通' });
   assert.equal(calls.findFirst, 0);
   assert.equal(calls.writes, 0);
+  await app.close();
+});
+
+test(`GET /api/me/key: 每用户超过 ${ME_KEY_RATE_LIMIT} 次/分钟返回 429 且不触达 key 查询/写入`, async () => {
+  // 换一个用户 id: 限流键为 me:key:<user.id>, 与本文件其它用例(用户 8)互不干扰
+  const limitedUser: FakeUser = { ...USER, id: 9, employeeId: 'E002', email: null };
+  const { app, calls } = await buildApp(limitedUser);
+  const auth = `Bearer ${await signRouterToken({ employeeId: 'E002' })}`;
+
+  for (let i = 0; i < ME_KEY_RATE_LIMIT; i++) {
+    assert.equal((await injectKey(app, auth)).statusCode, 200, `第 ${i + 1} 次请求应在限额内`);
+  }
+  const budgetUsed = { findFirst: calls.findFirst, writes: calls.writes };
+
+  const res = await injectKey(app, auth);
+  assert.equal(res.statusCode, 429);
+  assert.deepEqual(res.json(), { error: 'Too Many Requests' });
+  assert.equal(calls.findFirst, budgetUsed.findFirst, '429 不应再查 key');
+  assert.equal(calls.writes, budgetUsed.writes, '429 不应再写入');
   await app.close();
 });

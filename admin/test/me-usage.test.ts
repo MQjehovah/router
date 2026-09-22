@@ -5,7 +5,7 @@ import Fastify from 'fastify';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import type { PrismaClient } from '@prisma/client';
 import { createAuthenticateSso } from '../src/sso-auth.js';
-import { meRoutes } from '../src/routes/me.js';
+import { meRoutes, ME_USAGE_RATE_LIMIT } from '../src/routes/me.js';
 import {
   DEFAULT_RATE_LIMIT,
   DEFAULT_DAILY_QUOTA,
@@ -657,5 +657,39 @@ test('GET /api/me/usage: 无授权时列出全部 ACTIVE 模型, 行内用量/�
   });
   assert.equal(calls.modelFindMany, 1, '无授权时走全量 ACTIVE 模型清单');
   assert.equal(calls.groupBys.length, 0, '无授权时不做按模型聚合');
+  await app.close();
+});
+
+test(`GET /api/me/usage: 每用户超过 ${ME_USAGE_RATE_LIMIT} 次/分钟返回 429 且不触达查询`, async () => {
+  // 换一个用户 id: 限流键为 me:usage:<user.id>, 与本文件其它用例(用户 8)互不干扰;
+  // balanceResetAt 设为本月, 排除月度重置写库对「不触达」断言的干扰
+  const limitedUser: FakeUser = {
+    ...USER,
+    id: 10,
+    employeeId: 'E003',
+    email: null,
+    balanceResetAt: new Date()
+  };
+  const { app, calls } = await buildApp({
+    user: limitedUser,
+    keys: [{ ...KEY, userId: limitedUser.id }]
+  });
+  const auth = `Bearer ${await signRouterToken({ employeeId: 'E003' })}`;
+
+  for (let i = 0; i < ME_USAGE_RATE_LIMIT; i++) {
+    assert.equal((await injectUsage(app, auth)).statusCode, 200, `第 ${i + 1} 次请求应在限额内`);
+  }
+  const budgetUsed = {
+    aggregates: calls.aggregates.length,
+    keyFindFirst: calls.keyFindFirst,
+    modelFindMany: calls.modelFindMany
+  };
+
+  const res = await injectUsage(app, auth);
+  assert.equal(res.statusCode, 429);
+  assert.deepEqual(res.json(), { error: 'Too Many Requests' });
+  assert.equal(calls.aggregates.length, budgetUsed.aggregates, '429 不应再聚合用量');
+  assert.equal(calls.keyFindFirst, budgetUsed.keyFindFirst, '429 不应再查 key');
+  assert.equal(calls.modelFindMany, budgetUsed.modelFindMany, '429 不应再查模型');
   await app.close();
 });

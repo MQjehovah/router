@@ -55,8 +55,7 @@ async function getJwksFetcher(): Promise<ReturnType<typeof createRemoteJWKSet>> 
 /// 校验 IdP 签发的 ID Token（签名、iss、aud、exp），返回 payload
 ///
 /// audience 显式传入时优先于 OIDC_AUDIENCE：浏览器授权码回调拿到的 id_token
-/// 受众是本控制台自己的 client_id，而 /internal/sso/exchange 认的是调用方
-/// （桌面端 dashboard-gateway）的 client_id，两者需要区分。
+/// 受众是本控制台自己的 client_id（OIDC_CLIENT_ID），与 OIDC_AUDIENCE 可能不同。
 export async function verifyIdToken(idToken: string, audience?: string): Promise<JWTPayload> {
   const resolvedAudience = audience || process.env.OIDC_AUDIENCE;
   if (!isOidcConfigured(resolvedAudience)) {
