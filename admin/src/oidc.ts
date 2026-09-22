@@ -72,17 +72,23 @@ export async function verifyIdToken(idToken: string, audience?: string): Promise
   return payload;
 }
 
+/// SSO router token 验签是否可用(员工端 dashboard 交换出的 token 受众)
+export function isSsoTokenConfigured(): boolean {
+  return isOidcConfigured(process.env.SSO_ROUTER_AUDIENCE || 'router');
+}
+
 /// 校验员工端交换来的 router token(签名/iss/aud/exp)；aud 取 SSO_ROUTER_AUDIENCE，默认 router
 export async function verifySsoToken(token: string): Promise<JWTPayload> {
   const audience = process.env.SSO_ROUTER_AUDIENCE || 'router';
   if (!isOidcConfigured(audience)) {
-    throw new Error('SSO router audience not configured');
+    throw new Error('OIDC not configured (OIDC_ISSUER missing)');
   }
 
   const jwks = await getJwksFetcher();
   const { payload } = await jwtVerify(token, jwks, {
     issuer: process.env.OIDC_ISSUER,
     audience,
+    algorithms: ['RS256'],
     clockTolerance: 30
   });
   return payload;

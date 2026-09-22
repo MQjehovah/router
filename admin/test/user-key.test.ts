@@ -93,6 +93,15 @@ test('ensureUserKey: 无 key 且不传额度时用默认值(60/100000/3000000)',
   assert.equal(calls.lastCreate.data.monthlyQuota, 3000000);
 });
 
+test('ensureUserKey: rateLimit=0 是合法值, 落库与回显一致(不再回退 60)', async () => {
+  const { prisma, calls } = fakePrisma(null);
+
+  const result = await ensureUserKey(prisma, 7, { rateLimit: 0 });
+
+  assert.equal(result.rateLimit, 0);
+  assert.equal(calls.lastCreate.data.rateLimit, 0);
+});
+
 test('ensureUserKey: 已有 keyEncrypted 时复用同一把(created=false, 无新行)', async () => {
   const existing: KeyRow = {
     id: 7,
@@ -102,6 +111,7 @@ test('ensureUserKey: 已有 keyEncrypted 时复用同一把(created=false, 无�
     monthlyQuota: 56
   };
   const { prisma, calls } = fakePrisma(existing);
+  keyVerifyCache.set('probe-reuse', { valid: false, reason: 'keep' });
 
   const result = await ensureUserKey(prisma, 42, { rateLimit: 999 });
 
@@ -114,6 +124,11 @@ test('ensureUserKey: 已有 keyEncrypted 时复用同一把(created=false, 无�
   assert.equal(result.monthlyQuota, 56);
   assert.equal(calls.create, 0);
   assert.equal(calls.update, 0);
+  assert.notEqual(
+    keyVerifyCache.get('probe-reuse'),
+    undefined,
+    '复用路径未变更密钥材料, 不应清空 key 校验缓存'
+  );
 });
 
 test('ensureUserKey: 历史 key 缺 keyEncrypted 时同一行轮换(rotated=true)', async () => {

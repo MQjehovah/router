@@ -1,6 +1,6 @@
 import 'fastify';
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import type { User } from '@prisma/client';
+import type { SsoUser } from './sso-auth.js';
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
@@ -16,7 +16,7 @@ declare module 'fastify' {
   }
 
   interface FastifyRequest {
-    /// authenticateSso 通过后挂载的员工用户
-    ssoUser?: User;
+    /// 员工端 SSO 鉴权通过后的最小用户信息(不含 passwordHash); 由 authenticateSso 装饰器保证存在
+    ssoUser: SsoUser;
   }
 }

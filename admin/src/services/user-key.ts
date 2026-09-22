@@ -34,6 +34,9 @@ export async function ensureUserKey(
   userId: number,
   opts: EnsureUserKeyOptions = {}
 ): Promise<EnsuredUserKey> {
+  // 进门归一化: 落库与回显共用同一语义(0 是合法限速值, 不再被 || 回退成 60)
+  const rateLimit = opts.rateLimit ?? 60;
+
   const existing = await prisma.apiKey.findFirst({
     where: { userId, name: SSO_KEY_NAME, status: 'ACTIVE', deletedAt: null },
     orderBy: { id: 'desc' }
@@ -67,7 +70,7 @@ export async function ensureUserKey(
           keyHash,
           keyEncrypted,
           name: SSO_KEY_NAME,
-          rateLimit: opts.rateLimit || 60,
+          rateLimit,
           dailyQuota: opts.dailyQuota ?? 100000,
           monthlyQuota: opts.monthlyQuota ?? 3000000
         }
@@ -83,7 +86,7 @@ export async function ensureUserKey(
     keyId,
     created,
     rotated,
-    rateLimit: existing?.rateLimit ?? opts.rateLimit ?? 60,
+    rateLimit: existing?.rateLimit ?? rateLimit,
     dailyQuota: Number(existing?.dailyQuota ?? opts.dailyQuota ?? 100000),
     monthlyQuota: Number(existing?.monthlyQuota ?? opts.monthlyQuota ?? 3000000)
   };
