@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { requireSsoUser } from '../sso-auth.js';
 import {
   ensureUserKey,
-  SSO_KEY_NAME,
+  systemKeyWhere,
   DEFAULT_RATE_LIMIT,
   DEFAULT_DAILY_QUOTA,
   DEFAULT_MONTHLY_QUOTA
@@ -104,9 +104,9 @@ export async function meRoutes(fastify: FastifyInstance) {
     todayStart.setHours(0, 0, 0, 0);
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // 归属范围: 与 ensureUserKey 的查找一致(只看该用户的 sso key); 绝不创建/轮换
+    // 归属范围: 与 ensureUserKey 的查找一致(只看该用户的托管 key); 绝不创建/轮换
     const ssoKey = await db.apiKey.findFirst({
-      where: { userId: user.id, name: SSO_KEY_NAME, status: 'ACTIVE', deletedAt: null },
+      where: systemKeyWhere(user.id),
       orderBy: { id: 'desc' }
     });
 

@@ -34,6 +34,7 @@
         <el-table-column label="名称" min-width="150">
           <template #default="{ row }">
             <span class="cell-name">{{ row.name || '—' }}</span>
+            <el-tag v-if="row.isSystem" type="info" size="small" class="system-tag">系统托管</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="keyHash" label="Key" min-width="150">
@@ -84,8 +85,17 @@
             <el-tooltip content="编辑">
               <el-button text :icon="Edit" class="row-btn" @click="openEdit(row)" />
             </el-tooltip>
-            <el-tooltip content="删除">
-              <el-button text type="danger" :icon="Delete" class="row-btn" @click="handleDelete(row)" />
+            <el-tooltip :content="canDelete(row) ? '删除' : '系统托管密钥不可删除'">
+              <span class="delete-btn-wrap">
+                <el-button
+                  text
+                  type="danger"
+                  :icon="Delete"
+                  class="row-btn"
+                  :disabled="!canDelete(row)"
+                  @click="handleDelete(row)"
+                />
+              </span>
             </el-tooltip>
           </template>
         </el-table-column>
@@ -308,8 +318,11 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import { Plus, Search, Refresh, Edit, Delete, CopyDocument, RefreshRight, DataAnalysis } from '@element-plus/icons-vue';
 import TokenInput from '../components/TokenInput.vue';
 import api from '../api';
+import { useAuthStore } from '../stores/auth';
 
 use([CanvasRenderer, LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent]);
+
+const authStore = useAuthStore();
 
 const keys = ref<any[]>([]);
 const models = ref<any[]>([]);
@@ -408,6 +421,9 @@ const fmt = (n: number) => (n ?? 0).toLocaleString();
 const fmtDate = (s: string) => new Date(s).toLocaleString('zh-CN', { hour12: false });
 const statusLabel = (s: string) => ({ ACTIVE: '启用', INACTIVE: '停用', EXPIRED: '已过期' })[s] || s;
 const statusTag = (s: string) => ({ ACTIVE: 'success', INACTIVE: 'info', EXPIRED: 'danger' })[s] || 'info';
+
+// 系统托管密钥由工作台自动复用，普通用户不可删除（管理员仍可删）；后端同样以 409 兜底
+const canDelete = (row: any) => authStore.isAdmin || !row.isSystem;
 
 const loadKeys = async () => {
   loading.value = true;
@@ -576,6 +592,13 @@ onMounted(loadKeys);
 }
 .cell-name {
   font-weight: 500;
+}
+.system-tag {
+  margin-left: 6px;
+}
+.delete-btn-wrap {
+  display: inline-flex;
+  vertical-align: middle;
 }
 .key-hash {
   font-size: 12px;

@@ -10,9 +10,10 @@ export interface AuditEntry {
   detail?: unknown;
 }
 
-export async function writeAudit(entry: AuditEntry): Promise<void> {
+/// 写审计日志; db 可注入(与 fastify.prisma 装配一致), 默认用模块级客户端
+export async function writeAudit(entry: AuditEntry, db: PrismaClient = prisma): Promise<void> {
   try {
-    await prisma.auditLog.create({
+    await db.auditLog.create({
       data: {
         userId: entry.actorId ?? null,
         action: entry.action,

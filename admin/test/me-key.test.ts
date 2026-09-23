@@ -6,6 +6,7 @@ import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import type { PrismaClient } from '@prisma/client';
 import { createAuthenticateSso } from '../src/sso-auth.js';
 import { meRoutes, ME_KEY_RATE_LIMIT } from '../src/routes/me.js';
+import { SSO_KEY_NAME } from '../src/services/user-key.js';
 
 // 同 me-auth.test.ts: 本地最小 IdP + 真实 RS256 验签; Prisma 替身保留最小的 apiKey 内存表,
 // 以验证「首次创建 / 再次复用」的幂等语义。
@@ -79,6 +80,7 @@ interface FakeKeyRow {
   id: number;
   userId: number;
   name: string;
+  isSystem: boolean;
   status: string;
   deletedAt: Date | null;
   keyEncrypted: string | null;
@@ -97,6 +99,17 @@ async function buildApp(user: FakeUser | null = USER) {
     lastCreate: null as any
   };
 
+  // systemKeyWhere 的语义: userId/status/deletedAt 精确匹配, 且 (isSystem=true 或 name 命中新/历史命名)
+  const matchesWhere = (r: FakeKeyRow, where: any) =>
+    r.userId === where.userId &&
+    r.status === where.status &&
+    r.deletedAt === where.deletedAt &&
+    (where.OR ?? []).some(
+      (c: any) =>
+        (c.isSystem === true && r.isSystem === true) ||
+        (c.name?.in ? c.name.in.includes(r.name) : false)
+    );
+
   const prisma = {
     user: {
       findUnique: async (args: any) => (user && args.where.employeeId === user.employeeId ? user : null)
@@ -104,16 +117,7 @@ async function buildApp(user: FakeUser | null = USER) {
     apiKey: {
       findFirst: async (args: any) => {
         calls.findFirst++;
-        const { where } = args;
-        const matched = rows
-          .filter(
-            (r) =>
-              r.userId === where.userId &&
-              r.name === where.name &&
-              r.status === where.status &&
-              r.deletedAt === where.deletedAt
-          )
-          .sort((a, b) => b.id - a.id);
+        const matched = rows.filter((r) => matchesWhere(r, args.where)).sort((a, b) => b.id - a.id);
         return matched[0] ?? null;
       },
       create: async (args: any) => {
@@ -155,7 +159,7 @@ async function injectKey(app: BuiltApp['app'], authorization?: string) {
   });
 }
 
-test('GET /api/me/key: 首次调用创建 sso key(created=true, sk- 前缀)并带用户字段', async () => {
+test('GET /api/me/key: 首次调用创建系统托管 key(created=true, 默认密钥/isSystem)并带用户字段', async () => {
   const { app, calls } = await buildApp();
   const res = await injectKey(app, `Bearer ${await signRouterToken()}`);
   assert.equal(res.statusCode, 200);
@@ -174,7 +178,8 @@ test('GET /api/me/key: 首次调用创建 sso key(created=true, sk- 前缀)并�
 
   assert.equal(calls.create, 1);
   assert.equal(calls.lastCreate.data.userId, USER.id);
-  assert.equal(calls.lastCreate.data.name, 'sso');
+  assert.equal(calls.lastCreate.data.name, SSO_KEY_NAME);
+  assert.equal(calls.lastCreate.data.isSystem, true);
   await app.close();
 });
 

@@ -9,7 +9,9 @@ import { meRoutes, ME_USAGE_RATE_LIMIT } from '../src/routes/me.js';
 import {
   DEFAULT_RATE_LIMIT,
   DEFAULT_DAILY_QUOTA,
-  DEFAULT_MONTHLY_QUOTA
+  DEFAULT_MONTHLY_QUOTA,
+  SSO_KEY_NAME,
+  LEGACY_SSO_KEY_NAMES
 } from '../src/services/user-key.js';
 
 // 同 me-auth.test.ts: 本地最小 IdP + 真实 RS256 验签, 只把 Prisma 换成内存替身,
@@ -86,6 +88,7 @@ interface FakeKey {
   id: number;
   userId: number;
   name: string;
+  isSystem?: boolean;
   status: string;
   deletedAt: Date | null;
   rateLimit: number;
@@ -103,6 +106,26 @@ const KEY: FakeKey = {
   dailyQuota: 500000n,
   monthlyQuota: 2000000n
 };
+
+/// systemKeyWhere 的语义: userId/status/deletedAt 精确匹配, 且 (isSystem=true 或 name 命中新/历史命名)
+function matchesSystemKeyWhere(k: FakeKey, where: any): boolean {
+  if (k.userId !== where.userId || k.status !== where.status || k.deletedAt !== where.deletedAt) return false;
+  return (where.OR ?? []).some(
+    (c: any) =>
+      (c.isSystem === true && k.isSystem === true) ||
+      (c.name?.in ? c.name.in.includes(k.name) : false)
+  );
+}
+
+/// /api/me/usage 的 key 归属条件应恒等于 systemKeyWhere(userId)
+function expectedSystemKeyWhere(userId: number) {
+  return {
+    userId,
+    status: 'ACTIVE',
+    deletedAt: null,
+    OR: [{ isSystem: true }, { name: { in: [SSO_KEY_NAME, ...LEGACY_SSO_KEY_NAMES] } }]
+  };
+}
 
 interface FakeUsageRow {
   apiKeyId: number;
@@ -241,16 +264,7 @@ async function buildApp(opts: BuildOptions = {}) {
       findFirst: async (args: any) => {
         calls.keyFindFirst++;
         calls.keyWhere = args;
-        const { where } = args;
-        const matched = keys
-          .filter(
-            (k) =>
-              k.userId === where.userId &&
-              k.name === where.name &&
-              k.status === where.status &&
-              k.deletedAt === where.deletedAt
-          )
-          .sort((a, b) => b.id - a.id);
+        const matched = keys.filter((k) => matchesSystemKeyWhere(k, args.where)).sort((a, b) => b.id - a.id);
         return matched[0] ?? null;
       },
       create: async () => {
@@ -357,9 +371,9 @@ test('GET /api/me/usage: 有效 token 返回摘要(模式/值域/模型只取授
   assert.equal(body.truncated, false);
   assert.ok(!Number.isNaN(Date.parse(body.fetchedAt)), 'fetchedAt 应是服务端 ISO 时间');
 
-  // 归属范围: 查找条件与 ensureUserKey 对齐; 默认用户同月, 故重置幂等无写, 也无任何 key 写操作
+  // 归属范围: 查找条件与 ensureUserKey 对齐(systemKeyWhere); 默认用户同月, 故重置幂等无写, 也无任何 key 写操作
   assert.deepEqual(calls.keyWhere, {
-    where: { userId: USER.id, name: 'sso', status: 'ACTIVE', deletedAt: null },
+    where: expectedSystemKeyWhere(USER.id),
     orderBy: { id: 'desc' }
   });
   assert.equal(calls.userUpdateMany, 0);
@@ -426,7 +440,7 @@ test('GET /api/me/usage: 无 sso key 返回全 0 + 默认 quota(同月无重置�
   assert.equal(body.truncated, false);
 
   assert.equal(calls.keyFindFirst, 1);
-  assert.deepEqual(calls.keyWhere.where, { userId: USER.id, name: 'sso', status: 'ACTIVE', deletedAt: null });
+  assert.deepEqual(calls.keyWhere.where, expectedSystemKeyWhere(USER.id));
   assert.equal(calls.aggregates.length, 0);
   assert.equal(calls.userUpdateMany, 0, '同月不应触发月度重置');
   assert.equal(calls.transactionCreate, 0);
@@ -584,6 +598,30 @@ test('GET /api/me/usage: 存在他人/非 sso/已删 key 时仍只认自己的�
   assert.equal(calls.keyFindFirst, 1);
   assert.equal(body.rateLimit, KEY.rateLimit);
   assert.deepEqual(body.quota, { daily: 500000, monthly: 2000000 });
+  await app.close();
+});
+
+test('GET /api/me/usage: 被改名的系统托管 key(isSystem=true) 仍计入归属', async () => {
+  const renamed: FakeKey = {
+    id: 80,
+    userId: USER.id,
+    name: 'rename-by-user',
+    isSystem: true,
+    status: 'ACTIVE',
+    deletedAt: null,
+    rateLimit: 44,
+    dailyQuota: 111n,
+    monthlyQuota: 222n
+  };
+  const { app, calls } = await buildApp({ keys: [renamed] });
+
+  const res = await injectUsage(app, `Bearer ${await signRouterToken()}`);
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+
+  assert.equal(calls.keyFindFirst, 1);
+  assert.equal(body.rateLimit, 44);
+  assert.deepEqual(body.quota, { daily: 111, monthly: 222 });
   await app.close();
 });
 
